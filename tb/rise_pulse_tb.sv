@@ -54,6 +54,23 @@ module rise_pulse_tb;
         @(posedge clk);
         expect_pulse(1'b0, "pulse returns low after one cycle");
 
+        rst_n = 1'b0;
+        level_in = 1'b1;
+        @(posedge clk);
+        expect_pulse(1'b0, "during second reset with input high");
+
+        rst_n = 1'b1;
+        @(posedge clk);
+        expect_pulse(1'b0, "no pulse when input stays high across reset release");
+
+        level_in = 1'b0;
+        @(posedge clk);
+        expect_pulse(1'b0, "drop low after reset release");
+
+        level_in = 1'b1;
+        @(posedge clk);
+        expect_pulse(1'b1, "pulse still appears on a fresh rise after reset");
+
         $display("PASS: rise_pulse_tb");
         $finish;
     end
