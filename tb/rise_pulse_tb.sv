@@ -24,52 +24,51 @@ module rise_pulse_tb;
         end
     endtask
 
+    task check_after_posedge(input bit expected, input [127:0] step_name);
+        begin
+            @(posedge clk);
+            #1;
+            expect_pulse(expected, step_name);
+        end
+    endtask
+
     initial begin
         clk = 1'b0;
         rst_n = 1'b0;
         level_in = 1'b0;
 
-        repeat (2) @(posedge clk);
-        expect_pulse(1'b0, "during reset");
+        repeat (2) begin
+            check_after_posedge(1'b0, "during reset");
+        end
 
         rst_n = 1'b1;
-        @(posedge clk);
-        expect_pulse(1'b0, "after reset release with input low");
+        check_after_posedge(1'b0, "after reset release with input low");
 
         level_in = 1'b1;
-        @(posedge clk);
-        expect_pulse(1'b1, "single pulse on rising edge");
+        check_after_posedge(1'b1, "single pulse on rising edge");
 
-        @(posedge clk);
-        expect_pulse(1'b0, "no repeated pulse while input stays high");
+        check_after_posedge(1'b0, "no repeated pulse while input stays high");
 
         level_in = 1'b0;
-        @(posedge clk);
-        expect_pulse(1'b0, "no pulse on falling edge");
+        check_after_posedge(1'b0, "no pulse on falling edge");
 
         level_in = 1'b1;
-        @(posedge clk);
-        expect_pulse(1'b1, "second pulse on next rising edge");
+        check_after_posedge(1'b1, "second pulse on next rising edge");
 
-        @(posedge clk);
-        expect_pulse(1'b0, "pulse returns low after one cycle");
+        check_after_posedge(1'b0, "pulse returns low after one cycle");
 
         rst_n = 1'b0;
         level_in = 1'b1;
-        @(posedge clk);
-        expect_pulse(1'b0, "during second reset with input high");
+        check_after_posedge(1'b0, "during second reset with input high");
 
         rst_n = 1'b1;
-        @(posedge clk);
-        expect_pulse(1'b0, "no pulse when input stays high across reset release");
+        check_after_posedge(1'b0, "no pulse when input stays high across reset release");
 
         level_in = 1'b0;
-        @(posedge clk);
-        expect_pulse(1'b0, "drop low after reset release");
+        check_after_posedge(1'b0, "drop low after reset release");
 
         level_in = 1'b1;
-        @(posedge clk);
-        expect_pulse(1'b1, "pulse still appears on a fresh rise after reset");
+        check_after_posedge(1'b1, "pulse still appears on a fresh rise after reset");
 
         $display("PASS: rise_pulse_tb");
         $finish;
