@@ -24,6 +24,7 @@ from dotenv import load_dotenv
 REVIEW_COMMENT_MARKER = "<!-- rtl-auto-review -->"
 DEFAULT_OPENAI_MODEL = "gpt-5.4"
 DEFAULT_REASONING_EFFORT = "medium"
+DEFAULT_OPENAI_ENDPOINT_STYLE = "auto"
 DEFAULT_MAX_DIFF_CHARS = 120000
 DEFAULT_MAX_OUTPUT_TOKENS = 1800
 DEFAULT_GITHUB_API_BASE = "https://api.github.com"
@@ -46,6 +47,7 @@ class Config:
     pr_number: int
     openai_model: str
     openai_reasoning_effort: str
+    openai_endpoint_style: str
     max_diff_chars: int
     max_output_tokens: int
     github_api_base: str
@@ -124,6 +126,9 @@ def load_config(args: argparse.Namespace) -> Config:
         openai_reasoning_effort=get_env(
             "OPENAI_REASONING_EFFORT", DEFAULT_REASONING_EFFORT
         ),
+        openai_endpoint_style=get_env(
+            "OPENAI_ENDPOINT_STYLE", DEFAULT_OPENAI_ENDPOINT_STYLE
+        ).lower(),
         max_diff_chars=parse_positive_int(
             get_env("MAX_DIFF_CHARS", str(DEFAULT_MAX_DIFF_CHARS)), "MAX_DIFF_CHARS"
         ),
@@ -328,6 +333,32 @@ def build_openai_input(
 def call_openai_review(
     config: Config, instructions: str, review_input: str
 ) -> tuple[str, str]:
+    """Send the diff to an OpenAI-compatible API and return the textual review."""
+    endpoint_style = config.openai_endpoint_style
+    if endpoint_style == "responses":
+        return call_openai_responses_review(config, instructions, review_input)
+    if endpoint_style == "chat_completions":
+        return call_openai_chat_completions_review(config, instructions, review_input)
+    if endpoint_style != "auto":
+        raise ReviewerError(
+            "OPENAI_ENDPOINT_STYLE must be one of: auto, responses, chat_completions"
+        )
+
+    try:
+        return call_openai_responses_review(config, instructions, review_input)
+    except ReviewerError as error:
+        if not should_fallback_to_chat_completions(str(error)):
+            raise
+        print(
+            "[reviewer] Responses API is unavailable on this endpoint. "
+            "Falling back to chat completions."
+        )
+        return call_openai_chat_completions_review(config, instructions, review_input)
+
+
+def call_openai_responses_review(
+    config: Config, instructions: str, review_input: str
+) -> tuple[str, str]:
     """Send the diff to OpenAI Responses API and return the textual review."""
     payload: dict[str, Any] = {
         "model": config.openai_model,
@@ -369,6 +400,44 @@ def call_openai_review(
     return review_text, response_id
 
 
+def call_openai_chat_completions_review(
+    config: Config, instructions: str, review_input: str
+) -> tuple[str, str]:
+    """Call an OpenAI-compatible chat completions endpoint."""
+    payload: dict[str, Any] = {
+        "model": config.openai_model,
+        "messages": [
+            {"role": "system", "content": instructions},
+            {"role": "user", "content": review_input},
+        ],
+        "max_tokens": config.max_output_tokens,
+    }
+
+    response = requests.post(
+        f"{config.openai_api_base}/chat/completions",
+        headers={
+            "Authorization": f"Bearer {config.openai_api_key}",
+            "Content-Type": "application/json",
+        },
+        json=payload,
+        timeout=REQUEST_TIMEOUT_SECONDS,
+    )
+    raise_for_status(response, "Calling OpenAI-compatible chat completions API")
+
+    data = response.json()
+    if not isinstance(data, dict):
+        raise ReviewerError("Unexpected chat completions response format.")
+
+    review_text = extract_chat_completions_text(data)
+    response_id = str(data.get("id", "unknown"))
+    if not review_text:
+        raise ReviewerError(
+            "Chat completions API returned no review text. Raw payload: "
+            f"{json.dumps(data)[:1500]}"
+        )
+    return review_text, response_id
+
+
 def extract_openai_text(response_json: dict[str, Any]) -> str:
     """Aggregate all output_text chunks from a raw Responses API payload.
 
@@ -394,6 +463,48 @@ def extract_openai_text(response_json: dict[str, Any]) -> str:
     return "\n\n".join(parts).strip()
 
 
+def extract_chat_completions_text(response_json: dict[str, Any]) -> str:
+    """Extract assistant text from a chat completions-style response."""
+    choices = response_json.get("choices", [])
+    if not isinstance(choices, list) or not choices:
+        return ""
+
+    message = (choices[0] or {}).get("message", {})
+    content = message.get("content", "")
+    if isinstance(content, str):
+        return content.strip()
+
+    if isinstance(content, list):
+        parts: list[str] = []
+        for item in content:
+            if not isinstance(item, dict):
+                continue
+            if item.get("type") not in {"text", "output_text"}:
+                continue
+            text = str(item.get("text", "")).strip()
+            if text:
+                parts.append(text)
+        return "\n\n".join(parts).strip()
+
+    return ""
+
+
+def should_fallback_to_chat_completions(error_message: str) -> bool:
+    """Detect endpoint-shape failures that merit a chat completions retry."""
+    retry_markers = ("HTTP 400", "HTTP 404", "HTTP 405", "HTTP 415", "HTTP 422")
+    unsupported_markers = (
+        "unsupported",
+        "not found",
+        "unknown url",
+        "no route",
+        "does not exist",
+    )
+    normalized = error_message.lower()
+    return any(marker in error_message for marker in retry_markers) or any(
+        marker in normalized for marker in unsupported_markers
+    )
+
+
 def format_comment_body(
     config: Config,
     review_text: str,
@@ -406,6 +517,7 @@ def format_comment_body(
         "## RTL Auto Review",
         f"- PR: `#{config.pr_number}`",
         f"- Model: `{config.openai_model}`",
+        f"- Endpoint style: `{config.openai_endpoint_style}`",
         f"- Reasoning effort: `{config.openai_reasoning_effort}`",
         f"- Diff coverage: `{'truncated' if diff_truncated else 'full'}`",
         f"- OpenAI response id: `{response_id}`",
@@ -424,6 +536,7 @@ def format_comment_body(
             "## RTL Auto Review",
             f"- PR: `#{config.pr_number}`",
             f"- Model: `{config.openai_model}`",
+            f"- Endpoint style: `{config.openai_endpoint_style}`",
             "",
             truncated_review,
             "",
@@ -444,6 +557,7 @@ def format_failure_comment_body(config: Config, error_message: str) -> str:
             "## RTL Auto Review",
             f"- PR: `#{config.pr_number}`",
             f"- Model: `{config.openai_model}`",
+            f"- Endpoint style: `{config.openai_endpoint_style}`",
             "- Status: `failed`",
             "",
             "自动审核已被触发，但本次没有产出审查结果。",

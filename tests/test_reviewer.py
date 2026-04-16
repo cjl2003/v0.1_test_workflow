@@ -6,9 +6,11 @@ from unittest import mock
 from tools.reviewer import (
     DEFAULT_MAX_DIFF_CHARS,
     Config,
+    extract_chat_completions_text,
     format_failure_comment_body,
     get_env,
     load_config,
+    should_fallback_to_chat_completions,
 )
 
 
@@ -43,6 +45,7 @@ class ReviewerEnvTests(unittest.TestCase):
             pr_number=2,
             openai_model="gpt-5.4",
             openai_reasoning_effort="medium",
+            openai_endpoint_style="auto",
             max_diff_chars=120000,
             max_output_tokens=1800,
             github_api_base="https://api.github.com",
@@ -57,6 +60,23 @@ class ReviewerEnvTests(unittest.TestCase):
 
         self.assertIn("Status: `failed`", body)
         self.assertIn("HTTP 429", body)
+
+    def test_extract_chat_completions_text_from_string_content(self) -> None:
+        payload = {
+            "choices": [
+                {"message": {"content": "## Summary\n- found one issue"}}
+            ]
+        }
+        self.assertEqual(
+            extract_chat_completions_text(payload), "## Summary\n- found one issue"
+        )
+
+    def test_should_fallback_for_missing_responses_endpoint(self) -> None:
+        self.assertTrue(
+            should_fallback_to_chat_completions(
+                "Calling OpenAI Responses API failed with HTTP 404: not found"
+            )
+        )
 
 
 if __name__ == "__main__":
