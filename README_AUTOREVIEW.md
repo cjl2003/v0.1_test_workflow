@@ -55,8 +55,15 @@ The default implementation is intentionally small:
 
 You can keep defaults, but these repo variables are supported:
 
+- `OPENAI_API_BASE`
+  - Default in code: `https://api.openai.com/v1`
+  - For OpenAI-compatible gateways, set this to the gateway's API base URL.
 - `OPENAI_MODEL`
   - Default in code: `gpt-5.4`
+- `OPENAI_ENDPOINT_STYLE`
+  - Default in code: `auto`
+  - Supported values: `auto`, `responses`, `chat_completions`
+  - Use `chat_completions` when your gateway does not support `/v1/responses`.
 - `OPENAI_REASONING_EFFORT`
   - Default in code: `medium`
 - `OPENAI_MAX_OUTPUT_TOKENS`
@@ -131,3 +138,5 @@ Recommended guardrails for the multi-round version:
   case, this minimal workflow may not be able to call OpenAI or write comments.
 - If you need secure external-contributor support later, the usual next step is
   to redesign around `pull_request_target` or a two-stage artifact workflow.
+- For third-party OpenAI-compatible gateways, verify the transport is trusted
+  and encrypted before sending repository diffs through it.
