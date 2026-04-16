@@ -77,7 +77,7 @@ This separation is intentional:
 ### Repository variables for the reviewer
 
 - `OPENAI_API_BASE`
-  - Example: `http://101.43.9.6:3000/v1`
+  - Verified working example: `https://hub.tokenpanda.top/v1`
 - `OPENAI_REVIEW_MODEL`
   - Recommended for this setup: `gpt-5.4`
 - `OPENAI_MODEL`
@@ -121,11 +121,28 @@ That automation should:
 1. Push these files to the repository default branch.
 2. Configure GitHub Actions secrets and variables:
    - `OPENAI_API_KEY`
-   - `OPENAI_API_BASE`
+   - `OPENAI_API_BASE=https://hub.tokenpanda.top/v1`
    - `OPENAI_REVIEW_MODEL=gpt-5.4`
+   - `OPENAI_ENDPOINT_STYLE=chat_completions`
 3. Confirm `Settings -> Actions -> General -> Workflow permissions` allows PR
    comment writes.
 4. Enable the local desktop Codex automation on this machine.
+
+## Verified gateway note
+
+This repository has been validated against a New API compatible gateway where:
+
+- `OPENAI_API_BASE=https://hub.tokenpanda.top/v1`
+- `OPENAI_REVIEW_MODEL=gpt-5.4`
+- `OPENAI_ENDPOINT_STYLE=chat_completions`
+
+Important:
+
+- On this gateway, `gpt-5.4` was verified through `GET /v1/models`
+- A minimal `POST /v1/chat/completions` request succeeded
+- The same model was not stable through `/v1/responses` for this repository setup
+
+For this environment, prefer `chat_completions` instead of `responses` or `auto`.
 
 ## Day-to-day usage
 
@@ -176,6 +193,19 @@ After that:
    - change the label from `codex-fix-pending` to `codex-fix-applied` or
      `codex-fix-failed`
 6. Confirm GitHub runs `RTL PR Auto Review` again on the pushed commit.
+
+## Latest acceptance result
+
+The current end-to-end acceptance PR is `#9`.
+
+That PR verified the full loop:
+
+1. GPT-5.4 review comment posted automatically
+2. `/codex-fix` triggered the queue workflow
+3. The PR received `codex-fix-pending`
+4. Local desktop Codex applied a fix and pushed a commit
+5. The PR label changed to `codex-fix-applied`
+6. GitHub automatically ran GPT review again and updated the review comment
 
 ## Why this is different from the previous server-side version
 
