@@ -576,7 +576,7 @@ def format_fix_comment_body(
         lines.extend(
             [
                 "",
-                "现有 `auto-review.yml` 会因为这次推送自动再次运行，生成新的 RTL 审核结果。",
+                "当前 `codex-fix.yml` 会在修复推送后立即再跑一次 `tools/reviewer.py`，更新 RTL 审核评论。",
             ]
         )
 

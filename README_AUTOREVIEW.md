@@ -121,7 +121,7 @@ You can keep defaults, but these repo variables are supported:
 5. Confirm that:
    - the PR branch receives a new fix commit
    - the PR timeline contains an `RTL Auto Fix` status comment
-   - the push triggers `RTL PR Auto Review` again
+   - the same workflow immediately re-runs `tools/reviewer.py` and refreshes the `RTL Auto Review` comment
 
 ### Test locally
 
@@ -148,8 +148,9 @@ The repository now includes the minimal two-stage version:
 2. `codex-fix.yml` waits for a trusted `/codex-fix` PR comment.
 3. `tools/codex_fix.py` reads the latest review comment, generates a constrained
    fix for already-changed files only, verifies it, commits it, and pushes it.
-4. That push triggers `pull_request.synchronize`.
-5. `auto-review.yml` runs again and produces the next review pass.
+4. `codex-fix.yml` then waits briefly for GitHub to reflect the new commit and
+   re-runs `tools/reviewer.py` inside the same job.
+5. The PR review comment is refreshed with the post-fix review result.
 
 Recommended guardrails for the multi-round version:
 
