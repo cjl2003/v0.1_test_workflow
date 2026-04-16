@@ -39,6 +39,7 @@ jobs:
           GITHUB_REPO: ${{ github.repository }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
           OPENAI_API_BASE: ${{ vars.OPENAI_API_BASE }}
+          OPENAI_REVIEW_MODEL: ${{ vars.OPENAI_REVIEW_MODEL }}
           OPENAI_MODEL: ${{ vars.OPENAI_MODEL }}
           OPENAI_ENDPOINT_STYLE: ${{ vars.OPENAI_ENDPOINT_STYLE }}
           OPENAI_REASONING_EFFORT: ${{ vars.OPENAI_REASONING_EFFORT }}

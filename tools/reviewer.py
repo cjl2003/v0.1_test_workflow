@@ -122,7 +122,9 @@ def load_config(args: argparse.Namespace) -> Config:
         github_token=get_env("GITHUB_TOKEN", required=True),
         github_repo=get_env("GITHUB_REPO", required=True),
         pr_number=parse_positive_int(str(raw_pr_number), "PR_NUMBER"),
-        openai_model=get_env("OPENAI_MODEL", DEFAULT_OPENAI_MODEL),
+        openai_model=get_env(
+            "OPENAI_REVIEW_MODEL", get_env("OPENAI_MODEL", DEFAULT_OPENAI_MODEL)
+        ),
         openai_reasoning_effort=get_env(
             "OPENAI_REASONING_EFFORT", DEFAULT_REASONING_EFFORT
         ),

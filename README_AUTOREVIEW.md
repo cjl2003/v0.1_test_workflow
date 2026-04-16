@@ -1,174 +1,201 @@
 # PR Auto Review for RTL / Verilog
 
-## What this system does
+## What this system does now
 
-This repository now contains a minimal PR auto-review path for RTL projects:
+This repository now uses a true hybrid two-stage loop:
 
-1. A GitHub Actions workflow triggers on `pull_request` `opened`,
-   `synchronize`, and `reopened`.
-2. `tools/reviewer.py` reads the PR number, repository, and tokens from
-   environment variables.
-3. The script fetches the PR metadata and unified diff from the GitHub REST API.
-4. The script sends the diff to the OpenAI Responses API using RTL-specific
-   review rules from `.ai/reviewer_rules.md`.
-5. The script creates or updates a single PR timeline comment with the review.
+1. **GitHub Actions + GPT reviewer**
+   - When a PR is opened or updated, GitHub Actions runs `tools/reviewer.py`.
+   - The script fetches the PR diff and asks the configured review model to do
+     RTL / Verilog review.
+   - The result is written back to the PR as a single updatable comment.
 
-The default implementation is intentionally small:
+2. **Desktop Codex fix loop**
+   - When a trusted reviewer comments `/codex-fix` on the PR, GitHub does not
+     fix code on the server anymore.
+   - Instead, GitHub marks the PR with `codex-fix-pending`.
+   - A local desktop Codex automation watches for that label, checks out the PR
+     branch on this machine, edits code using local skills, verifies, commits,
+     and pushes.
+   - That push triggers the GPT review workflow again.
 
-- GitHub comment type: issue-style PR timeline comment
-- Review source: PR unified diff
-- Review target: Verilog / SystemVerilog / RTL risks
-- Comment behavior: update the previous auto-review comment on each new push
+This separation is intentional:
+
+- **Codex** writes and edits code locally, with local skills.
+- **GPT-5.4** reviews code in GitHub Actions.
 
 ## Files
 
 - `.github/workflows/auto-review.yml`
-  - GitHub Actions entry point that installs dependencies and runs the reviewer
-    when a PR is opened or updated.
+  - GitHub Actions workflow for PR review.
 - `.github/workflows/codex-fix.yml`
-  - Manual second-stage workflow triggered by a trusted PR comment such as
-    `/codex-fix`.
+  - GitHub Actions workflow that turns `/codex-fix` into a queued local fix
+    request by labeling the PR.
 - `tools/reviewer.py`
-  - Main reviewer script. Fetches PR data from GitHub, calls the OpenAI
-    Responses API, and posts the result back to the PR.
-- `tools/codex_fix.py`
-  - Manual fix script. Reads the latest review comment, asks the model for a
-    constrained fix, applies it to the checked-out PR branch, verifies, commits,
-    and pushes.
+  - Fetches PR metadata and diff, calls the review model, and updates the PR
+    comment.
 - `.ai/reviewer_rules.md`
-  - The RTL-specific review rubric passed to the model.
+  - RTL review rubric for the GPT reviewer.
+- `.ai/desktop_codex_fix_rules.md`
+  - Local repair rules for the desktop Codex automation.
 - `requirements.txt`
-  - Minimal Python dependencies for local runs and GitHub Actions.
+  - Python dependencies for the review workflow.
 - `.env.example`
-  - Example local environment configuration.
+  - Example environment configuration for local script runs.
 - `README_AUTOREVIEW.md`
-  - Setup, testing, and extension notes.
+  - Setup and operating notes.
 
-## GitHub Secrets and variables
+## Architecture
+
+### Stage 1: GPT review in GitHub
+
+- Trigger: `pull_request` `opened` / `synchronize` / `reopened`
+- Workflow: `.github/workflows/auto-review.yml`
+- Script: `tools/reviewer.py`
+- Output: `RTL Auto Review` PR comment
+
+### Stage 2: Codex fix on the local desktop
+
+- Trigger command in PR: `/codex-fix`
+- Workflow: `.github/workflows/codex-fix.yml`
+- Server behavior: add label `codex-fix-pending`
+- Local behavior: desktop Codex automation sees the label, fixes code, commits,
+  pushes, and lets Stage 1 run again
+
+## GitHub Secrets and repository variables
 
 ### Required secret
 
 - `OPENAI_API_KEY`
-  - OpenAI API key used by `reviewer.py`.
+  - Used by `tools/reviewer.py` in GitHub Actions.
 
 ### Built-in token
 
 - `GITHUB_TOKEN`
-  - No manual secret creation is normally needed.
-  - GitHub Actions injects this automatically.
-  - The workflow passes it into `reviewer.py` as `GITHUB_TOKEN`.
+  - GitHub injects this automatically for Actions jobs.
 
-### Optional repository variables
-
-You can keep defaults, but these repo variables are supported:
+### Repository variables for the reviewer
 
 - `OPENAI_API_BASE`
-  - Default in code: `https://api.openai.com/v1`
-  - For OpenAI-compatible gateways, set this to the gateway's API base URL.
+  - Example: `http://101.43.9.6:3000/v1`
+- `OPENAI_REVIEW_MODEL`
+  - Recommended for this setup: `gpt-5.4`
 - `OPENAI_MODEL`
-  - Default in code: `gpt-5.4`
-- `OPENAI_FIX_MODEL`
-  - Default in code: falls back to `OPENAI_MODEL`
+  - Optional fallback if `OPENAI_REVIEW_MODEL` is not set
 - `OPENAI_ENDPOINT_STYLE`
-  - Default in code: `auto`
-  - Supported values: `auto`, `responses`, `chat_completions`
-  - Use `chat_completions` when your gateway does not support `/v1/responses`.
+  - `auto`, `responses`, or `chat_completions`
 - `OPENAI_REASONING_EFFORT`
-  - Default in code: `medium`
 - `OPENAI_MAX_OUTPUT_TOKENS`
-  - Default in code: `1800`
 - `MAX_DIFF_CHARS`
-  - Default in code: `120000`
-- `MAX_FIX_CONTEXT_CHARS`
-  - Default in code: `90000`
-- `CODEX_FIX_VERIFY_COMMAND`
-  - Default in code: `git diff --check`
-  - Use this to run a repo-specific syntax check or regression command before the
-    fix workflow pushes a commit.
+
+### Local desktop Codex configuration
+
+The fixer is no longer configured through GitHub repository variables.
+
+Instead, it is configured by the local Codex desktop automation itself:
+
+- automation model: use a Codex model such as `gpt-5.2-codex`
+- local skills: use the desktop Codex skill system
+- local verify command: typically `git diff --check`, or a stronger RTL lint /
+  syntax command if you have one
+
+## Required local automation
+
+This repository now expects a local desktop Codex automation to be active.
+
+That automation should:
+
+1. Look for open PRs labeled `codex-fix-pending`
+2. Read the latest `RTL Auto Review` comment
+3. Read the latest `/codex-fix` instruction
+4. Checkout the PR branch locally
+5. Fix only files already changed in the PR
+6. Follow `.ai/desktop_codex_fix_rules.md`
+7. Verify, commit, push
+8. Replace the label:
+   - success: `codex-fix-applied`
+   - failure: `codex-fix-failed`
 
 ## First-time enablement
 
-1. Commit these files to the repository default branch.
-2. In GitHub repository settings, enable Actions if it is disabled.
-3. In `Settings -> Secrets and variables -> Actions`, create the secret
-   `OPENAI_API_KEY`.
-4. In `Settings -> Actions -> General -> Workflow permissions`, make sure the
-   workflow token can write PR comments. If your repo policy is restrictive,
-   switch to `Read and write permissions`.
-5. Open or update an internal PR and confirm that `RTL PR Auto Review` runs.
+1. Push these files to the repository default branch.
+2. Configure GitHub Actions secrets and variables:
+   - `OPENAI_API_KEY`
+   - `OPENAI_API_BASE`
+   - `OPENAI_REVIEW_MODEL=gpt-5.4`
+3. Confirm `Settings -> Actions -> General -> Workflow permissions` allows PR
+   comment writes.
+4. Enable the local desktop Codex automation on this machine.
+
+## Day-to-day usage
+
+### Normal PR review
+
+1. Push your RTL changes to a branch.
+2. Open a PR to `main`.
+3. Wait for `RTL PR Auto Review`.
+4. Read the `RTL Auto Review` comment.
+
+### Ask Codex to fix
+
+If you want the desktop Codex agent to try a repair, comment this on the PR:
+
+```text
+/codex-fix
+```
+
+Or add a short instruction:
+
+```text
+/codex-fix Please keep the patch minimal and only touch the new RTL file.
+```
+
+After that:
+
+1. GitHub labels the PR as `codex-fix-pending`
+2. Local desktop Codex picks it up
+3. Codex pushes a fix commit
+4. GitHub automatically runs the GPT reviewer again
 
 ## How to test
 
-### Test in GitHub
+### Test the reviewer
 
-1. Push these files to the default branch.
-2. Create a small PR that changes one or two `.v` / `.sv` files.
-3. Wait for the `RTL PR Auto Review` workflow to finish.
-4. Check the PR timeline for a comment starting with `RTL Auto Review`.
-5. Push one more commit to the PR and confirm the same comment is updated.
+1. Open a small PR that changes a `.v` or `.sv` file.
+2. Wait for `RTL PR Auto Review`.
+3. Confirm the PR timeline contains `RTL Auto Review`.
 
-### Test the manual Codex fix stage
+### Test the full Codex -> GPT loop
 
-1. Open a same-repo PR that already has an `RTL Auto Review` comment.
-2. Add a new PR comment whose first line is `/codex-fix`.
-3. Optionally add a short instruction after the command, for example:
+1. Open a same-repo PR with an intentionally fixable RTL issue.
+2. Wait for the initial `RTL Auto Review` comment.
+3. Add `/codex-fix`.
+4. Confirm the PR gets label `codex-fix-pending`.
+5. Wait for the local desktop Codex automation to:
+   - commit and push a fix
+   - change the label from `codex-fix-pending` to `codex-fix-applied` or
+     `codex-fix-failed`
+6. Confirm GitHub runs `RTL PR Auto Review` again on the pushed commit.
 
-```text
-/codex-fix Please only fix the sequential blocking assignment issue.
-```
+## Why this is different from the previous server-side version
 
-4. Wait for the `RTL PR Codex Fix` workflow to finish.
-5. Confirm that:
-   - the PR branch receives a new fix commit
-   - the PR timeline contains an `RTL Auto Fix` status comment
-   - the same workflow immediately re-runs `tools/reviewer.py` and refreshes the `RTL Auto Review` comment
+The old implementation used a GitHub Actions job to generate and push fixes
+directly on the server.
 
-### Test locally
+That version did not satisfy the real requirement of:
 
-1. Copy `.env.example` to `.env` and fill in real values.
-2. Install dependencies:
+- **desktop Codex writes code**
+- **GPT reviews**
 
-```bash
-python -m pip install -r requirements.txt
-```
+The current design does satisfy that requirement:
 
-3. Run a dry run:
+- GitHub server: reviewer only
+- Local desktop Codex: code editing and local skills
 
-```bash
-python tools/reviewer.py 123 --dry-run
-```
+## Limitations
 
-The dry run prints the generated comment body without writing back to GitHub.
-
-## How to extend to "Codex fix -> GPT re-review"
-
-The repository now includes the minimal two-stage version:
-
-1. `auto-review.yml` reviews a PR and writes `RTL Auto Review`.
-2. `codex-fix.yml` waits for a trusted `/codex-fix` PR comment.
-3. `tools/codex_fix.py` reads the latest review comment, generates a constrained
-   fix for already-changed files only, verifies it, commits it, and pushes it.
-4. `codex-fix.yml` then waits briefly for GitHub to reflect the new commit and
-   re-runs `tools/reviewer.py` inside the same job.
-5. The PR review comment is refreshed with the post-fix review result.
-
-Recommended guardrails for the multi-round version:
-
-- Only run auto-fix on trusted branches or organization members.
-- Limit the maximum loop count to avoid fix/review ping-pong.
-- Store the latest review marker in the PR comment so the fix workflow knows
-  which findings were already addressed.
-- Require at least one deterministic verification step before pushing the fix.
-- Keep the minimal implementation constrained to same-repository PR branches.
-
-## Default assumptions and limitations
-
-- This implementation assumes GitHub.com-style REST APIs.
-- The workflow is based on `pull_request`, exactly as requested.
-- For PRs from forks, GitHub does not pass regular secrets such as
-  `OPENAI_API_KEY` to the runner, and `GITHUB_TOKEN` is restricted. In that
-  case, this minimal workflow may not be able to call OpenAI or write comments.
-- If you need secure external-contributor support later, the usual next step is
-  to redesign around `pull_request_target` or a two-stage artifact workflow.
-- For third-party OpenAI-compatible gateways, verify the transport is trusted
-  and encrypted before sending repository diffs through it.
+- The local Codex loop only works while this desktop automation is active.
+- Fork PRs are not part of the minimal local-fix design.
+- Reviewer comments can still contain false positives or inconsistent findings.
+- The local fixer should still be constrained to minimal safe edits.
+- The default verification command is still lightweight unless you strengthen it.
