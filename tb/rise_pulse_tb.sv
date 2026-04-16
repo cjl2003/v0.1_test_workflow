@@ -63,6 +63,7 @@ module rise_pulse_tb;
 
         rst_n = 1'b1;
         check_after_posedge(1'b0, "no pulse when input stays high across reset release");
+        check_after_posedge(1'b0, "still no pulse while reset baseline stays high");
 
         level_in = 1'b0;
         check_after_posedge(1'b0, "drop low after reset release");
