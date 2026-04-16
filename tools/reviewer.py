@@ -55,13 +55,25 @@ class Config:
 
 
 def get_env(name: str, default: str | None = None, required: bool = False) -> str:
-    """Read an environment variable and treat empty strings as missing."""
-    value = os.getenv(name, default)
-    if value is None or value.strip() == "":
-        if required:
-            raise ReviewerError(f"Missing required environment variable: {name}")
+    """Read an environment variable and treat empty strings as missing.
+
+    GitHub Actions passes missing repository variables as empty strings. For
+    optional inputs we want blank values to fall back to the in-code defaults
+    instead of overriding them with "".
+    """
+    value = os.getenv(name)
+    if value is not None:
+        value = value.strip()
+        if value != "":
+            return value
+
+    if required:
+        raise ReviewerError(f"Missing required environment variable: {name}")
+
+    if default is None:
         return ""
-    return value.strip()
+
+    return default.strip()
 
 
 def parse_positive_int(raw_value: str, env_name: str) -> int:
