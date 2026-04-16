@@ -495,9 +495,11 @@ def should_fallback_to_chat_completions(error_message: str) -> bool:
     unsupported_markers = (
         "unsupported",
         "not found",
+        "not implemented",
         "unknown url",
         "no route",
         "does not exist",
+        "convert_request_failed",
     )
     normalized = error_message.lower()
     return any(marker in error_message for marker in retry_markers) or any(

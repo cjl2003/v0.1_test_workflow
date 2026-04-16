@@ -78,6 +78,14 @@ class ReviewerEnvTests(unittest.TestCase):
             )
         )
 
+    def test_should_fallback_for_not_implemented_gateway_response(self) -> None:
+        self.assertTrue(
+            should_fallback_to_chat_completions(
+                "Calling OpenAI Responses API failed with HTTP 500: "
+                '{"error":{"message":"not implemented","code":"convert_request_failed"}}'
+            )
+        )
+
 
 if __name__ == "__main__":
     unittest.main()
