@@ -2,6 +2,9 @@ name: Debug New API Gateway
 
 on:
   workflow_dispatch:
+  push:
+    branches:
+      - test/local-codex-gpt-loop
 
 permissions:
   contents: read
