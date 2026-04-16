@@ -1,3 +1,4 @@
+`default_nettype none
 module inline_rereview_counter (
     input  wire       clk,
     input  wire       rst_n,
@@ -6,9 +7,10 @@ module inline_rereview_counter (
 
 always @(posedge clk or negedge rst_n) begin
     if (!rst_n)
-        count = 4'd0;
+        count <= 4'd0;
     else
-        count = count + 1'b1;
+        count <= count + 4'd1;
 end
 
 endmodule
+`default_nettype wire
