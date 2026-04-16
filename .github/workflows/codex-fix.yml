@@ -1,0 +1,76 @@
+name: RTL PR Codex Fix
+
+on:
+  issue_comment:
+    types:
+      - created
+
+permissions:
+  contents: write
+  issues: write
+  pull-requests: write
+
+concurrency:
+  group: codex-fix-pr-${{ github.event.issue.number }}
+  cancel-in-progress: false
+
+jobs:
+  codex_fix:
+    name: Apply Codex fix to PR branch
+    if: >-
+      github.event.issue.pull_request &&
+      startsWith(github.event.comment.body, '/codex-fix') &&
+      (
+        github.event.comment.author_association == 'OWNER' ||
+        github.event.comment.author_association == 'MEMBER' ||
+        github.event.comment.author_association == 'COLLABORATOR'
+      )
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements.txt
+
+      - name: Configure git identity
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+      - name: Check out PR branch
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_REPO: ${{ github.repository }}
+          PR_NUMBER: ${{ github.event.issue.number }}
+        run: |
+          gh pr checkout "${PR_NUMBER}" --repo "${GITHUB_REPO}"
+          git status --short --branch
+
+      - name: Run Codex fix
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_REPO: ${{ github.repository }}
+          PR_NUMBER: ${{ github.event.issue.number }}
+          COMMENT_BODY: ${{ github.event.comment.body }}
+          OPENAI_API_BASE: ${{ vars.OPENAI_API_BASE }}
+          OPENAI_MODEL: ${{ vars.OPENAI_MODEL }}
+          OPENAI_FIX_MODEL: ${{ vars.OPENAI_FIX_MODEL }}
+          OPENAI_ENDPOINT_STYLE: ${{ vars.OPENAI_ENDPOINT_STYLE }}
+          OPENAI_REASONING_EFFORT: ${{ vars.OPENAI_REASONING_EFFORT }}
+          OPENAI_MAX_OUTPUT_TOKENS: ${{ vars.OPENAI_MAX_OUTPUT_TOKENS }}
+          CODEX_FIX_VERIFY_COMMAND: ${{ vars.CODEX_FIX_VERIFY_COMMAND }}
+          MAX_FIX_CONTEXT_CHARS: ${{ vars.MAX_FIX_CONTEXT_CHARS }}
+        run: python tools/codex_fix.py "${PR_NUMBER}"

@@ -25,9 +25,16 @@ The default implementation is intentionally small:
 - `.github/workflows/auto-review.yml`
   - GitHub Actions entry point that installs dependencies and runs the reviewer
     when a PR is opened or updated.
+- `.github/workflows/codex-fix.yml`
+  - Manual second-stage workflow triggered by a trusted PR comment such as
+    `/codex-fix`.
 - `tools/reviewer.py`
   - Main reviewer script. Fetches PR data from GitHub, calls the OpenAI
     Responses API, and posts the result back to the PR.
+- `tools/codex_fix.py`
+  - Manual fix script. Reads the latest review comment, asks the model for a
+    constrained fix, applies it to the checked-out PR branch, verifies, commits,
+    and pushes.
 - `.ai/reviewer_rules.md`
   - The RTL-specific review rubric passed to the model.
 - `requirements.txt`
@@ -60,6 +67,8 @@ You can keep defaults, but these repo variables are supported:
   - For OpenAI-compatible gateways, set this to the gateway's API base URL.
 - `OPENAI_MODEL`
   - Default in code: `gpt-5.4`
+- `OPENAI_FIX_MODEL`
+  - Default in code: falls back to `OPENAI_MODEL`
 - `OPENAI_ENDPOINT_STYLE`
   - Default in code: `auto`
   - Supported values: `auto`, `responses`, `chat_completions`
@@ -70,6 +79,12 @@ You can keep defaults, but these repo variables are supported:
   - Default in code: `1800`
 - `MAX_DIFF_CHARS`
   - Default in code: `120000`
+- `MAX_FIX_CONTEXT_CHARS`
+  - Default in code: `90000`
+- `CODEX_FIX_VERIFY_COMMAND`
+  - Default in code: `git diff --check`
+  - Use this to run a repo-specific syntax check or regression command before the
+    fix workflow pushes a commit.
 
 ## First-time enablement
 
@@ -92,6 +107,22 @@ You can keep defaults, but these repo variables are supported:
 4. Check the PR timeline for a comment starting with `RTL Auto Review`.
 5. Push one more commit to the PR and confirm the same comment is updated.
 
+### Test the manual Codex fix stage
+
+1. Open a same-repo PR that already has an `RTL Auto Review` comment.
+2. Add a new PR comment whose first line is `/codex-fix`.
+3. Optionally add a short instruction after the command, for example:
+
+```text
+/codex-fix Please only fix the sequential blocking assignment issue.
+```
+
+4. Wait for the `RTL PR Codex Fix` workflow to finish.
+5. Confirm that:
+   - the PR branch receives a new fix commit
+   - the PR timeline contains an `RTL Auto Fix` status comment
+   - the push triggers `RTL PR Auto Review` again
+
 ### Test locally
 
 1. Copy `.env.example` to `.env` and fill in real values.
@@ -111,15 +142,14 @@ The dry run prints the generated comment body without writing back to GitHub.
 
 ## How to extend to "Codex fix -> GPT re-review"
 
-One practical next step is to split the flow into two workflows:
+The repository now includes the minimal two-stage version:
 
-1. Keep `auto-review.yml` as the "review" workflow.
-2. Add a second workflow triggered by a label, slash command, or manual dispatch
-   such as `codex-fix`.
-3. That second workflow reads the latest auto-review comment, asks Codex (or
-   another code-writing agent) to patch the PR branch, and pushes a fix commit.
-4. The new commit triggers `pull_request.synchronize`.
-5. The existing `auto-review.yml` runs again and produces the next review pass.
+1. `auto-review.yml` reviews a PR and writes `RTL Auto Review`.
+2. `codex-fix.yml` waits for a trusted `/codex-fix` PR comment.
+3. `tools/codex_fix.py` reads the latest review comment, generates a constrained
+   fix for already-changed files only, verifies it, commits it, and pushes it.
+4. That push triggers `pull_request.synchronize`.
+5. `auto-review.yml` runs again and produces the next review pass.
 
 Recommended guardrails for the multi-round version:
 
@@ -128,6 +158,7 @@ Recommended guardrails for the multi-round version:
 - Store the latest review marker in the PR comment so the fix workflow knows
   which findings were already addressed.
 - Require at least one deterministic verification step before pushing the fix.
+- Keep the minimal implementation constrained to same-repository PR branches.
 
 ## Default assumptions and limitations
 
