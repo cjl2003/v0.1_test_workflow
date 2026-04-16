@@ -6,9 +6,9 @@ module local_codex_gpt_loop_counter (
 
 always @(posedge clk or negedge rst_n) begin
     if (!rst_n)
-        count = 4'd0;
+        count <= 4'd0;
     else
-        count = count + 1'b1;
+        count <= count + 1'b1;
 end
 
 endmodule
