@@ -37,6 +37,20 @@ class ReviewerEnvTests(unittest.TestCase):
         self.assertEqual(config.openai_model, "gpt-5.4")
         self.assertEqual(config.openai_reasoning_effort, "medium")
 
+    def test_load_config_prefers_review_model_override(self) -> None:
+        env = {
+            "OPENAI_API_KEY": "sk-test",
+            "GITHUB_TOKEN": "ghs-test",
+            "GITHUB_REPO": "owner/repo",
+            "PR_NUMBER": "2",
+            "OPENAI_MODEL": "fallback-model",
+            "OPENAI_REVIEW_MODEL": "gpt-5.4",
+        }
+        with mock.patch.dict(os.environ, env, clear=True):
+            config = load_config(argparse.Namespace(pr_number=None, dry_run=False))
+
+        self.assertEqual(config.openai_model, "gpt-5.4")
+
     def test_failure_comment_body_contains_status_and_reason(self) -> None:
         config = Config(
             openai_api_key="sk-test",

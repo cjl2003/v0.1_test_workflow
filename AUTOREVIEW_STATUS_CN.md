@@ -1,87 +1,87 @@
-# RTL PR 自动审核系统最终状态说明
+# RTL PR 自动审核系统状态说明
 
 ## 1. 当前结论
 
-当前仓库已经具备一套可运行、已落地、已做真实验证的 Verilog/RTL PR 自动审核系统，并且已经扩展为手动触发的双阶段闭环：
+当前仓库已经升级为真正的混合架构：
 
-1. PR 创建或更新时自动进行 RTL 审核
-2. 审核结果自动评论回 GitHub PR
-3. 人工在 PR 中评论 `/codex-fix` 后，触发自动修复
-4. 自动修复完成后，在同一个 workflow 内立即再次执行 reviewer，刷新 PR 审核评论
+1. **GitHub Actions + GPT reviewer**
+   - 负责读取 PR diff
+   - 负责自动 RTL 审核
+   - 负责把审核结果评论回 PR
 
-这套系统现在已经达到“最小可用”状态。
+2. **桌面版 Codex**
+   - 负责在本机写代码和改代码
+   - 负责使用本地 skill
+   - 负责本地验证、commit 和 push
 
-## 2. 当前仓库状态
+也就是说，当前目标已经从“服务器端假装 Codex 修代码”切换为：
 
-- 仓库地址：`https://github.com/cjl2003/v0.1_test_workflow`
-- 默认分支：`main`
-- 当前主线状态：`main` 与 `origin/main` 已同步
+- **Codex 本地修复**
+- **GPT 云端复审**
 
-当前与本系统相关的关键 PR 状态：
+这才是现在仓库的正式形态。
 
-- `#1` bootstrap 安装 PR：已合并
-- `#3` reviewer 稳定性修复 PR：已合并
-- `#4` 手动 Codex 修复 workflow PR：已合并
-- `#6` “修复后立即再审”热修 PR：已合并
-- `#2` 第一阶段自动审核验收 PR：已关闭，作为验收记录保留
-- `#5` 双阶段 workflow 首个可用版本验收 PR：已关闭，作为验收记录保留
-- `#7` 双阶段 workflow 最终形态验收 PR：已关闭，作为最终验收记录保留
+## 2. 当前主线上的架构
 
-## 3. 当前主线上的工作流
+### 2.1 第一阶段：GPT 自动审核
 
-### 3.1 第一阶段：自动审核
-
-文件：
+工作流：
 
 - `.github/workflows/auto-review.yml`
 
-作用：
+触发条件：
 
-- 在 `pull_request` 的以下事件触发：
+- `pull_request` 的
   - `opened`
   - `synchronize`
   - `reopened`
-- 安装 Python 依赖
+
+行为：
+
 - 运行 `tools/reviewer.py`
-- 从 GitHub event 获取 PR number
-- 拉取 PR diff
-- 调用模型做 RTL 审核
-- 将审查结果作为 PR comment 回写到 GitHub
+- 拉取 PR metadata 和 diff
+- 调用 review 模型
+- 将结果更新到 `RTL Auto Review` 评论
 
-权限：
+当前 reviewer 的模型配置原则：
 
-- `contents: read`
-- `issues: write`
-- `pull-requests: write`
+- 优先读取 `OPENAI_REVIEW_MODEL`
+- 如果未设置，再回退到 `OPENAI_MODEL`
 
-### 3.2 第二阶段：手动 Codex 修复并立即再审
+### 2.2 第二阶段：本地桌面 Codex 修复
 
-文件：
+工作流：
 
 - `.github/workflows/codex-fix.yml`
 
-作用：
+当前它的职责已经改变：
 
-- 在 `issue_comment` 的 `created` 事件触发
-- 只接受以下受信任评论者：
+- 它**不再**在 GitHub Actions 服务器上直接改代码
+- 它只负责把 `/codex-fix` 评论转成一个待处理请求
+
+触发条件：
+
+- `issue_comment.created`
+- 评论内容以 `/codex-fix` 开头
+- 评论者是受信任身份：
   - `OWNER`
   - `MEMBER`
   - `COLLABORATOR`
-- 只在评论内容以 `/codex-fix` 开头时执行
-- checkout 当前 PR 分支
-- 运行 `tools/codex_fix.py`
-- 若修复成功并 push 了新 commit，则在同一个 workflow 里等待几秒，然后立即再次运行 `tools/reviewer.py`
-- 刷新 PR 上的 `RTL Auto Review` 评论
 
-权限：
+它会做的事：
 
-- `contents: write`
-- `issues: write`
-- `pull-requests: write`
+1. 确保这些 label 存在：
+   - `codex-fix-pending`
+   - `codex-fix-applied`
+   - `codex-fix-failed`
+2. 给对应 PR 打上 `codex-fix-pending`
+3. 在 PR 中写一条确认评论，说明请求已经进入本地桌面 Codex 队列
 
-## 4. 当前主线上的核心脚本
+真正修代码的是本地桌面 Codex 自动化，不是 GitHub Actions。
 
-### 4.1 `tools/reviewer.py`
+## 3. 当前主线上的关键文件
+
+### 3.1 `tools/reviewer.py`
 
 作用：
 
@@ -89,64 +89,107 @@
   - `OPENAI_API_KEY`
   - `GITHUB_TOKEN`
   - `GITHUB_REPO`
-- 读取 PR metadata 和 PR diff
-- 调用模型接口执行 RTL 审核
-- 将结果写回 PR
-- 若审核失败，也会回写失败状态评论，避免 workflow 失败但 PR 页面没有信息
+- 获取 PR diff
+- 调用模型做 RTL 审核
+- 回写 PR 评论
 - 支持 OpenAI 兼容网关
-- 当网关不支持 `responses` 时，可自动回退到 `chat/completions`
+- 当网关不支持 `responses` 时，可自动降级到 `chat/completions`
 
-### 4.2 `tools/codex_fix.py`
+### 3.2 `.ai/reviewer_rules.md`
 
 作用：
 
-- 从 PR 评论中解析 `/codex-fix`
-- 读取该 PR 上最新的 `RTL Auto Review` 评论
-- 只允许修改“当前 PR 已改动的 UTF-8 文本文件”
-- 请求模型输出受约束的 JSON 修复结果
-- 将模型返回的完整文件内容写回工作区
-- 运行最小验证命令
-- 成功后 commit 并 push 回 PR 分支
-- 将修复状态写回 PR 的 `RTL Auto Fix` 评论
+- 定义 GPT reviewer 的 RTL 审核规则
+- 主要覆盖：
+  - 顶层接口变化
+  - reset 语义
+  - 阻塞/非阻塞赋值
+  - latch 风险
+  - 位宽/符号扩展/截断
+  - 可综合性
+  - testbench / 验证充分性
 
-当前的安全边界：
+### 3.3 `.ai/desktop_codex_fix_rules.md`
 
-- 只支持同仓库 PR，不支持跨仓库 fork PR
-- 只允许修改本 PR 已改动的文件
-- 只允许修改能按 UTF-8 读取的文本文件
-- 默认验证命令是 `git diff --check`
+作用：
 
-## 5. 当前仓库配置
+- 定义本地桌面 Codex 修复时必须遵守的边界
+- 包括：
+  - 只处理 `codex-fix-pending` 的 PR
+  - 只修改当前 PR 已改动的文件
+  - 优先修 P1 / P2 和 RTL 正确性问题
+  - 不做大范围重构
+  - 验证失败不 push
+  - 失败时给 PR 打 `codex-fix-failed`
 
-### 5.1 GitHub Secret
+## 4. 当前需要的配置
+
+### 4.1 GitHub Secret
 
 必须存在：
 
 - `OPENAI_API_KEY`
 
-### 5.2 GitHub Actions Variables
+### 4.2 GitHub Variables
 
-当前已配置并在使用：
+推荐配置：
 
 - `OPENAI_API_BASE = http://101.43.9.6:3000/v1`
+- `OPENAI_REVIEW_MODEL = gpt-5.4`
 - `OPENAI_ENDPOINT_STYLE = auto`
-- `OPENAI_MODEL = claude-sonnet-4-6`
 
-当前支持但可选的变量：
+可选：
 
-- `OPENAI_FIX_MODEL`
+- `OPENAI_MODEL`
 - `OPENAI_REASONING_EFFORT`
 - `OPENAI_MAX_OUTPUT_TOKENS`
 - `MAX_DIFF_CHARS`
-- `MAX_FIX_CONTEXT_CHARS`
-- `CODEX_FIX_VERIFY_COMMAND`
 
 说明：
 
-- 当前不是直接走 OpenAI 官方接口，而是走你指定的 OpenAI 兼容网关
-- reviewer 和 fixer 都可复用同一套网关配置
+- reviewer 在 GitHub Actions 中使用这些变量
+- 本地桌面 Codex 修复**不依赖 GitHub Actions 的 fix 模型变量**
 
-## 6. 真实验收记录
+## 5. 现在如何真正工作
+
+### 5.1 PR 自动审核
+
+开发者正常开 PR 后：
+
+1. GitHub 自动触发 `RTL PR Auto Review`
+2. GPT reviewer 自动读取 PR diff
+3. GPT reviewer 自动给出 RTL 审核评论
+
+这一步是**全自动**的，不需要你额外操作。
+
+### 5.2 请求桌面版 Codex 修复
+
+如果你希望桌面 Codex 自动修：
+
+在 PR 评论里写：
+
+```text
+/codex-fix
+```
+
+也可以加一句约束：
+
+```text
+/codex-fix Please only fix the new RTL file and keep the patch minimal.
+```
+
+之后流程是：
+
+1. GitHub 给 PR 打 `codex-fix-pending`
+2. 本地桌面 Codex 自动化检测到这个 label
+3. 本地桌面 Codex checkout 该 PR 分支
+4. 本地桌面 Codex 读取最新 `RTL Auto Review`
+5. 本地桌面 Codex 按本地 skill 和 `.ai/desktop_codex_fix_rules.md` 修改代码
+6. 本地桌面 Codex 在本机验证
+7. 本地桌面 Codex commit 并 push
+8. 新 push 触发 GitHub 的 GPT reviewer 再次审查
+
+## 6. 当前已经完成的真实验收
 
 ### 6.1 第一阶段自动审核验收
 
@@ -154,120 +197,60 @@
 
 - `#2`
 
-验证内容：
+结论：
 
-- PR 创建后自动触发 `RTL PR Auto Review`
-- reviewer 能正确拉取 PR diff
-- reviewer 能调用模型接口
-- reviewer 能将 RTL 审核评论回写到 PR 页面
+- GitHub 自动审核链路已打通
 
-结果：
-
-- 已通过
-- PR 已关闭，作为验收记录保留
-
-### 6.2 双阶段 workflow 首个可用版本验收
+### 6.2 双阶段首个可用版本验收
 
 验收 PR：
 
 - `#5`
 
-验证内容：
+结论：
 
-- 第一阶段自动审核正常
-- `/codex-fix` 能触发 `RTL PR Codex Fix`
-- fixer 能自动提交修复 commit
-- PR 页面能收到 `RTL Auto Fix` 评论
+- `/codex-fix` 请求链路已打通
+- 能自动生成修复 commit
+- 但当时仍是服务器端修复方案
 
-结果：
+### 6.3 双阶段最终形态验收
 
-- 已通过
-- 该 PR 对应的是“首个可用版本”
-- 后续 `#6` 已把“修复后立即再审”补进主线
-- PR 已关闭，作为阶段性验收记录保留
+旧的“服务器端 Codex 修复”已经被淘汰。
 
-### 6.3 双阶段 workflow 最终形态验收
+当前主线以“本地桌面 Codex 修复”为准。
 
-验收 PR：
+后续需要做的真实验收重点是：
 
-- `#7`
+1. `/codex-fix` -> `codex-fix-pending`
+2. 本地桌面 Codex 自动化捞取该 PR
+3. 本地 Codex push 修复 commit
+4. GitHub GPT reviewer 自动再次审核
 
-验证内容：
+## 7. 当前系统的优点
 
-- 第一阶段 `RTL Auto Review` 正常触发
-- 手动 `/codex-fix` 正常触发第二阶段
-- fixer 自动生成并 push 修复 commit
-- PR 页面收到 `RTL Auto Fix` 评论
-- `codex-fix.yml` 在修复后立即再次运行 `tools/reviewer.py`
-- `RTL Auto Review` 评论被刷新
+相较旧方案，当前方案的关键优势是：
 
-结果：
+1. 真正使用桌面 Codex 本地能力
+2. 真正可以使用本地 skill
+3. 代码修改发生在本地，不在 GitHub runner 上“伪装成 Codex”
+4. GPT reviewer 和 Codex fixer 的角色边界更清晰
 
-- 已通过
-- PR 已关闭，作为最终验收记录保留
+## 8. 当前限制
 
-## 7. 现在如何使用
+当前仍有限制：
 
-以后正常使用时，流程如下：
+1. 本地桌面 Codex 自动化必须处于开启状态
+2. 如果本机关闭，`codex-fix-pending` 的 PR 不会被处理
+3. 目前主要支持同仓库 PR
+4. reviewer 仍然可能误报或漏报
+5. 默认验证命令如果过弱，仍然可能放过不充分修复
 
-1. 从 `main` 拉一个新分支
-2. 修改你的 `.v` / `.sv` / RTL 相关文件
-3. push 分支
-4. 创建 PR 到 `main`
-5. 等待 `RTL PR Auto Review` 自动完成
-6. 在 PR 的 `Conversation` 中查看 `RTL Auto Review` 评论
-7. 如果你希望机器人尝试修复，就在 PR 中评论：
+## 9. 你现在应该怎么理解它
 
-```text
-/codex-fix
-```
+一句话版本：
 
-也可以附带一句约束，例如：
+- **GitHub 自动审**
+- **桌面 Codex 自动修**
+- **GitHub 再自动审**
 
-```text
-/codex-fix Please only fix the new RTL file and keep the change minimal.
-```
-
-8. 等待 `RTL PR Codex Fix` 完成
-9. 查看：
-   - `RTL Auto Fix` 评论
-   - 被刷新后的 `RTL Auto Review` 评论
-
-## 8. GitHub 网页上你主要看哪里
-
-平时主要看这几个地方：
-
-1. `Pull requests`
-2. 目标 PR 的 `Conversation`
-3. 目标 PR 的 `Checks`
-4. 仓库的 `Actions`
-
-## 9. 当前已知限制
-
-这套系统已经可用，但仍有明确边界：
-
-1. 当前 auto-fix 只支持同仓库 PR，不支持 fork PR
-2. 当前 auto-fix 只处理“该 PR 已改动”的文本文件，不会跨文件大范围重构
-3. 默认验证命令较弱，只做 `git diff --check`
-4. 模型的再审结论仍可能存在误报、漏报或理解偏差
-5. 因此当前系统更适合做“辅助审核 / 辅助修复”，不适合直接自动合并
-
-## 10. 如果后续失败，优先检查什么
-
-优先检查：
-
-1. `OPENAI_API_KEY` 是否仍有效
-2. `OPENAI_API_BASE` 是否仍是可用网关地址
-3. `OPENAI_MODEL` / `OPENAI_FIX_MODEL` 是否仍是网关支持的模型名
-4. workflow `permissions` 是否被误改
-5. `RTL Auto Review` 或 `RTL Auto Fix` 评论是否有失败原因
-6. `CODEX_FIX_VERIFY_COMMAND` 是否过严或失效
-
-## 11. 当前建议
-
-当前系统已经可以投入日常最小使用。
-
-建议下一步优先做下面两件事中的至少一件：
-
-1. 将 `CODEX_FIX_VERIFY_COMMAND` 升级为更有意义的 RTL 检查命令，例如 lint、语法检查或最小仿真
-2. 为 `codex_fix.py` 增加“最大循环次数”和“只修复最新 findings”的更严格约束
+这就是现在这套系统的核心。

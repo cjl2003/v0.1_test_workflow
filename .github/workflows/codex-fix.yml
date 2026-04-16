@@ -1,4 +1,4 @@
-name: RTL PR Codex Fix
+name: RTL PR Codex Fix Request
 
 on:
   issue_comment:
@@ -6,17 +6,17 @@ on:
       - created
 
 permissions:
-  contents: write
+  contents: read
   issues: write
   pull-requests: write
 
 concurrency:
-  group: codex-fix-pr-${{ github.event.issue.number }}
+  group: codex-fix-request-pr-${{ github.event.issue.number }}
   cancel-in-progress: false
 
 jobs:
-  codex_fix:
-    name: Apply Codex fix to PR branch
+  queue_request:
+    name: Queue local Codex fix request
     if: >-
       github.event.issue.pull_request &&
       startsWith(github.event.comment.body, '/codex-fix') &&
@@ -28,66 +28,28 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Check out repository
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.11"
-          cache: "pip"
-
-      - name: Install dependencies
+      - name: Ensure request labels exist
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_REPO: ${{ github.repository }}
         run: |
-          python -m pip install --upgrade pip
-          python -m pip install -r requirements.txt
+          gh label create codex-fix-pending --repo "${GITHUB_REPO}" --color F9D0C4 --description "Pending local Codex fix request" || true
+          gh label create codex-fix-applied --repo "${GITHUB_REPO}" --color 0E8A16 --description "Local Codex fix applied" || true
+          gh label create codex-fix-failed --repo "${GITHUB_REPO}" --color D93F0B --description "Local Codex fix attempt failed" || true
 
-      - name: Configure git identity
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-
-      - name: Check out PR branch
+      - name: Mark PR as pending local Codex fix
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GITHUB_REPO: ${{ github.repository }}
           PR_NUMBER: ${{ github.event.issue.number }}
         run: |
-          gh pr checkout "${PR_NUMBER}" --repo "${GITHUB_REPO}"
-          git status --short --branch
+          gh pr edit "${PR_NUMBER}" --repo "${GITHUB_REPO}" --remove-label codex-fix-applied --remove-label codex-fix-failed || true
+          gh pr edit "${PR_NUMBER}" --repo "${GITHUB_REPO}" --add-label codex-fix-pending
 
-      - name: Run Codex fix
+      - name: Acknowledge queued request
         env:
-          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GITHUB_REPO: ${{ github.repository }}
           PR_NUMBER: ${{ github.event.issue.number }}
-          COMMENT_BODY: ${{ github.event.comment.body }}
-          OPENAI_API_BASE: ${{ vars.OPENAI_API_BASE }}
-          OPENAI_MODEL: ${{ vars.OPENAI_MODEL }}
-          OPENAI_FIX_MODEL: ${{ vars.OPENAI_FIX_MODEL }}
-          OPENAI_ENDPOINT_STYLE: ${{ vars.OPENAI_ENDPOINT_STYLE }}
-          OPENAI_REASONING_EFFORT: ${{ vars.OPENAI_REASONING_EFFORT }}
-          OPENAI_MAX_OUTPUT_TOKENS: ${{ vars.OPENAI_MAX_OUTPUT_TOKENS }}
-          CODEX_FIX_VERIFY_COMMAND: ${{ vars.CODEX_FIX_VERIFY_COMMAND }}
-          MAX_FIX_CONTEXT_CHARS: ${{ vars.MAX_FIX_CONTEXT_CHARS }}
-        run: python tools/codex_fix.py "${PR_NUMBER}"
-
-      - name: Wait for GitHub to reflect any pushed fix commit
-        run: sleep 5
-
-      - name: Re-run RTL reviewer after fix
-        env:
-          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          GITHUB_REPO: ${{ github.repository }}
-          PR_NUMBER: ${{ github.event.issue.number }}
-          OPENAI_API_BASE: ${{ vars.OPENAI_API_BASE }}
-          OPENAI_MODEL: ${{ vars.OPENAI_MODEL }}
-          OPENAI_ENDPOINT_STYLE: ${{ vars.OPENAI_ENDPOINT_STYLE }}
-          OPENAI_REASONING_EFFORT: ${{ vars.OPENAI_REASONING_EFFORT }}
-          OPENAI_MAX_OUTPUT_TOKENS: ${{ vars.OPENAI_MAX_OUTPUT_TOKENS }}
-          MAX_DIFF_CHARS: ${{ vars.MAX_DIFF_CHARS }}
-        run: python tools/reviewer.py "${PR_NUMBER}"
+        run: |
+          gh pr comment "${PR_NUMBER}" --repo "${GITHUB_REPO}" --body "Received \`/codex-fix\`. The request is queued for local desktop Codex. After Codex pushes a fix commit, the GPT reviewer will run again on the PR."
