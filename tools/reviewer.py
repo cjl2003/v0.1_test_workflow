@@ -432,6 +432,28 @@ def format_comment_body(
     ).strip()
 
 
+def format_failure_comment_body(config: Config, error_message: str) -> str:
+    """Build a PR comment for reviewer failures that happen after trigger."""
+    compact_error = " ".join(error_message.strip().split())
+    if len(compact_error) > 1500:
+        compact_error = compact_error[:1500].rstrip() + "..."
+
+    return "\n".join(
+        [
+            REVIEW_COMMENT_MARKER,
+            "## RTL Auto Review",
+            f"- PR: `#{config.pr_number}`",
+            f"- Model: `{config.openai_model}`",
+            "- Status: `failed`",
+            "",
+            "自动审核已被触发，但本次没有产出审查结果。",
+            "",
+            f"- 失败原因：`{compact_error}`",
+            "- 建议处理：检查 `OPENAI_API_KEY` 是否可用、额度是否充足，以及模型访问权限是否正常。",
+        ]
+    ).strip()
+
+
 def find_existing_comment(
     session: requests.Session, config: Config, owner: str, repo: str
 ) -> dict[str, Any] | None:
@@ -516,12 +538,19 @@ def main() -> int:
         review_input = build_openai_input(
             config, pull_request, review_diff, diff_truncated
         )
-        review_text, response_id = call_openai_review(
-            config, instructions, review_input
-        )
-        comment_body = format_comment_body(
-            config, review_text, diff_truncated, response_id
-        )
+        review_failed = False
+        try:
+            review_text, response_id = call_openai_review(
+                config, instructions, review_input
+            )
+            comment_body = format_comment_body(
+                config, review_text, diff_truncated, response_id
+            )
+        except ReviewerError as error:
+            if config.dry_run:
+                raise
+            review_failed = True
+            comment_body = format_failure_comment_body(config, str(error))
 
         if config.dry_run:
             print(comment_body)
@@ -532,6 +561,12 @@ def main() -> int:
             github_session, config, owner, repo, comment_body
         )
         print(f"[reviewer] Successfully {action} PR comment: {comment_url}")
+        if review_failed:
+            print(
+                "[reviewer] Review failed after posting status comment.",
+                file=sys.stderr,
+            )
+            return 1
 
     return 0
 
