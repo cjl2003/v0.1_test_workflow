@@ -1,0 +1,96 @@
+name: Debug New API Gateway
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    name: Probe model list and chat endpoint
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Probe gateway
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          OPENAI_API_BASE: ${{ vars.OPENAI_API_BASE }}
+          OPENAI_REVIEW_MODEL: ${{ vars.OPENAI_REVIEW_MODEL }}
+        run: |
+          python - <<'PY'
+          import json
+          import os
+          import sys
+          import urllib.error
+          import urllib.request
+
+          api_key = os.environ["OPENAI_API_KEY"].strip()
+          api_base = os.environ["OPENAI_API_BASE"].rstrip("/")
+          review_model = os.environ.get("OPENAI_REVIEW_MODEL", "").strip() or "gpt-5.4"
+
+          def request_json(method: str, url: str, payload: dict | None = None):
+              body = None
+              if payload is not None:
+                  body = json.dumps(payload).encode("utf-8")
+              request = urllib.request.Request(
+                  url,
+                  data=body,
+                  method=method,
+                  headers={
+                      "Authorization": f"Bearer {api_key}",
+                      "Content-Type": "application/json",
+                  },
+              )
+              try:
+                  with urllib.request.urlopen(request, timeout=45) as response:
+                      raw = response.read()
+                      status = response.status
+                      content_type = response.headers.get("Content-Type", "")
+              except urllib.error.HTTPError as error:
+                  raw = error.read()
+                  status = error.code
+                  content_type = error.headers.get("Content-Type", "")
+              except Exception as error:
+                  print(f"NETWORK_ERROR: {error}")
+                  sys.exit(1)
+
+              text = raw.decode("utf-8", errors="replace")
+              print(f"URL: {url}")
+              print(f"STATUS: {status}")
+              print(f"CONTENT_TYPE: {content_type}")
+              print(f"BODY_SNIPPET: {text[:1500]}")
+              print("-" * 80)
+              try:
+                  return status, json.loads(text)
+              except json.JSONDecodeError:
+                  return status, None
+
+          print(f"OPENAI_API_BASE={api_base}")
+          print(f"OPENAI_REVIEW_MODEL={review_model}")
+          print("=" * 80)
+
+          models_status, models_payload = request_json("GET", f"{api_base}/models")
+          if isinstance(models_payload, dict):
+              model_ids = [
+                  item.get("id", "")
+                  for item in models_payload.get("data", [])
+                  if isinstance(item, dict)
+              ]
+              print(f"MODEL_COUNT={len(model_ids)}")
+              print(f"HAS_TARGET_MODEL={review_model in model_ids}")
+              print("MODELS_HEAD=" + ", ".join(model_ids[:50]))
+          else:
+              print("MODEL_LIST_PARSE_FAILED=true")
+
+          print("=" * 80)
+          chat_payload = {
+              "model": review_model,
+              "messages": [
+                  {"role": "system", "content": "Reply with exactly: ok"},
+                  {"role": "user", "content": "ok"},
+              ],
+              "max_tokens": 8,
+          }
+          request_json("POST", f"{api_base}/chat/completions", chat_payload)
+          PY
