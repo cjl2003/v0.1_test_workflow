@@ -232,7 +232,6 @@ Formal PR commands:
 
 - `/answer ...`
 - `/approve-plan`
-- `/replan`
 
 Phase-1 required commands:
 
@@ -241,13 +240,12 @@ Phase-1 required commands:
 
 Phase-1 optional but supported commands:
 
-- `/replan`
+None.
 
 Behavior:
 
 - `/answer ...` provides clarification input to GPT-5.4
 - `/approve-plan` authorizes local execution only when it is issued after the latest `wf:plan`
-- `/replan` asks GPT-5.4 to discard the current plan and publish a new one
 
 ## Workflow Components
 
@@ -260,7 +258,6 @@ Triggers:
 - PR opened
 - PR synchronized while the primary state is `wf:intake`, `wf:needs-clarification`, or `wf:rework-needed`
 - PR comment with `/answer ...`
-- PR comment with `/replan`
 
 Inputs:
 
@@ -296,7 +293,8 @@ GitHub workflow: `frontend-review.yml`
 
 Triggers:
 
-- PR updates after local runner push when state is `wf:awaiting-gpt-review`
+- PR updates after local runner push when state is already `wf:awaiting-gpt-review`
+- updates to the latest `wf:codex-run` comment while state is `wf:awaiting-gpt-review`
 
 Inputs:
 
@@ -333,9 +331,9 @@ Jobs are processed FIFO by queue time.
 5. Edit only the files required for the approved frontend work.
 6. Run frontend verification.
 7. On success, write the run result document.
-8. On success, commit changes, create a tag, and push branch plus tag.
-9. Update the `wf:codex-run` comment.
-10. Transition the PR to `wf:awaiting-gpt-review`.
+8. On success, commit changes and create a tag.
+9. On success, transition the PR to `wf:awaiting-gpt-review`.
+10. On success, push branch plus tag and then update the `wf:codex-run` comment.
 
 ### Verification Contract
 
@@ -455,7 +453,7 @@ The repository stores summarized evidence only. Full logs remain on the Windows 
 
 1. Implement request submission and request-file creation.
 2. Implement GPT clarification and plan publication.
-3. Implement command routing for `/answer ...` and `/approve-plan`.
+3. Implement direct GPT planning triggers for `/answer ...` and command routing for `/approve-plan`.
 4. Implement local runner pickup, isolated worktree execution, and fixed frontend verification.
 5. Implement run-summary persistence, commit, tag, and push behavior.
 6. Implement GPT frontend re-review and final phase-1 state transitions.
