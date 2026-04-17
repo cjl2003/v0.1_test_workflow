@@ -49,4 +49,4 @@ jobs:
           COMMAND_BODY: ${{ github.event.comment.body }}
           COMMENT_CREATED_AT: ${{ github.event.comment.created_at }}
           COMMENT_AUTHOR_ASSOCIATION: ${{ github.event.comment.author_association }}
-        run: python tools/command_router.py
+        run: python -m tools.command_router
