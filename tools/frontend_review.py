@@ -6,7 +6,6 @@ from __future__ import annotations
 import argparse
 import re
 import textwrap
-from pathlib import Path
 from typing import Any
 
 from tools.workflow_lib import (
@@ -24,7 +23,6 @@ from tools.workflow_lib import (
     indent_block,
     load_github_config,
     load_openai_config,
-    read_text_file,
     render_marked_comment,
     truncate_text,
 )
@@ -131,7 +129,7 @@ def load_review_context(pr_number: int, client: GitHubClient) -> str:
     if not run_result_path:
         raise WorkflowError("wf:codex-run comment is missing Run Result Path.")
 
-    run_result = read_text_file(Path(run_result_path))
+    run_result = client.fetch_pull_request_file_text(pr_number, run_result_path)
 
     blocks = [
         indent_block("Latest Approved Plan", plan_body),

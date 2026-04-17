@@ -1,4 +1,5 @@
 import unittest
+from unittest import mock
 
 from tools import frontend_review
 
@@ -36,6 +37,33 @@ new file mode 100644
         self.assertIn("docs/requests/", instructions)
         self.assertIn("docs/runs/", instructions)
         self.assertIn("do not treat them as scope violations", instructions)
+
+    def test_load_review_context_reads_run_result_via_github_client(self) -> None:
+        latest_plan = {
+            "body": "<!-- wf:plan -->\n## Frontend Plan",
+            "created_at": "2026-04-17T03:12:36Z",
+            "updated_at": "2026-04-17T03:12:36Z",
+        }
+        latest_run = {
+            "body": (
+                "<!-- wf:codex-run -->\n"
+                "## Local Codex Run\n"
+                "- Run Result Path: `docs/runs/req-1/20260417_041824.md`"
+            ),
+            "created_at": "2026-04-17T04:21:08Z",
+            "updated_at": "2026-04-17T04:21:08Z",
+        }
+        client = mock.Mock()
+        client.list_issue_comments.return_value = [latest_plan, latest_run]
+        client.fetch_pull_request_diff.return_value = "diff --git a/README.md b/README.md"
+        client.fetch_pull_request_file_text.return_value = "# Frontend Run Result"
+
+        context = frontend_review.load_review_context(11, client)
+
+        client.fetch_pull_request_file_text.assert_called_once_with(
+            11, "docs/runs/req-1/20260417_041824.md"
+        )
+        self.assertIn("# Frontend Run Result", context)
 
 
 if __name__ == "__main__":

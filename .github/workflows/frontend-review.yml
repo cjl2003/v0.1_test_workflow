@@ -34,19 +34,11 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Check out PR head on pull_request
-        if: github.event_name == 'pull_request'
+      - name: Check out default branch workflow code
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
-          ref: ${{ github.event.pull_request.head.sha }}
-
-      - name: Check out PR head on issue_comment
-        if: github.event_name == 'issue_comment'
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-          ref: refs/pull/${{ github.event.issue.number }}/head
+          ref: refs/heads/${{ github.event.repository.default_branch }}
 
       - name: Set up Python
         uses: actions/setup-python@v5

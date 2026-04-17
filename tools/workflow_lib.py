@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import base64
 import json
 import os
 import re
@@ -324,6 +325,33 @@ class GitHubClient:
         )
         raise_for_status(response, "Fetching pull request diff")
         return response.text
+
+    def fetch_pull_request_file_text(self, pr_number: int, path: str) -> str:
+        """Read a text file from the PR head ref via the GitHub contents API."""
+        pr = self.get_pull_request(pr_number)
+        head = (pr.get("head") or {}) if isinstance(pr, dict) else {}
+        ref = str(head.get("sha") or head.get("ref") or "").strip()
+        if not ref:
+            raise WorkflowError("Pull request payload is missing head sha/ref.")
+
+        payload = github_get_json(
+            self.session,
+            self._repo_url(f"contents/{path}?ref={ref}"),
+            f"Fetching PR file contents for {path}",
+        )
+        if not isinstance(payload, dict):
+            raise WorkflowError(f"Unexpected GitHub contents payload for {path}.")
+
+        encoded = str(payload.get("content", "")).strip()
+        encoding = str(payload.get("encoding", "")).strip().lower()
+        if not encoded or encoding != "base64":
+            raise WorkflowError(f"GitHub contents payload for {path} is missing base64 content.")
+
+        try:
+            raw_bytes = base64.b64decode(encoded, validate=False)
+        except ValueError as error:
+            raise WorkflowError(f"Failed to decode GitHub contents for {path}.") from error
+        return raw_bytes.decode("utf-8").strip()
 
     def list_issue_comments(self, pr_number: int) -> list[dict[str, Any]]:
         payload = github_get_json(
