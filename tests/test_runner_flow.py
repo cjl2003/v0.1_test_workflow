@@ -3,8 +3,11 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
+from tools.backend_runner import BackendCandidate
 from tools.runner_pickup import (
+    build_candidate,
     build_success_tag,
+    dispatch_candidate,
     parse_request_metadata,
     render_codex_run_comment,
     render_run_result_document,
@@ -145,6 +148,46 @@ class RunnerFlowTests(unittest.TestCase):
         self.assertEqual(captured["input"], "中文 prompt")
         self.assertEqual(captured["encoding"], "utf-8")
         self.assertTrue(captured["text"])
+
+    def test_build_candidate_uses_backend_builder_when_state_is_backend_queued(self) -> None:
+        client = mock.Mock()
+        client.config.github_repo = "owner/repo"
+        pr = {
+            "number": 15,
+            "labels": [{"name": "wf:backend-queued"}],
+            "head": {
+                "ref": "request/2026-04-17-phase2a-smoke",
+                "repo": {"full_name": "owner/repo"},
+            },
+        }
+        sentinel = BackendCandidate(
+            pr_number=15,
+            queue_time="2026-04-17T10:00:00Z",
+            request_path="docs/requests/2026-04-17-phase2a-smoke.md",
+            head_branch="request/2026-04-17-phase2a-smoke",
+        )
+
+        with mock.patch("tools.runner_pickup.build_backend_candidate", return_value=sentinel) as patched:
+            candidate = build_candidate(client, pr)
+
+        self.assertIs(candidate, sentinel)
+        patched.assert_called_once_with(client, pr)
+
+    def test_dispatch_candidate_routes_backend_candidate(self) -> None:
+        client = mock.Mock()
+        candidate = BackendCandidate(
+            pr_number=15,
+            queue_time="2026-04-17T10:00:00Z",
+            request_path="docs/requests/2026-04-17-phase2a-smoke.md",
+            head_branch="request/2026-04-17-phase2a-smoke",
+        )
+
+        with mock.patch("tools.runner_pickup.execute_backend_candidate") as backend_exec:
+            with mock.patch("tools.runner_pickup.execute_candidate") as frontend_exec:
+                dispatch_candidate(client, candidate)
+
+        backend_exec.assert_called_once_with(client, candidate)
+        frontend_exec.assert_not_called()
 
 
 if __name__ == "__main__":

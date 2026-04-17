@@ -8,6 +8,8 @@ from tools.command_router import evaluate_command
 from tools.frontend_review import normalize_review_payload
 from tools.request_planner import normalize_planner_payload
 from tools.workflow_lib import (
+    MARKER_BACKEND_REVIEW,
+    MARKER_BACKEND_RUN,
     OpenAIConfig,
     PRIMARY_LABELS,
     WorkflowError,
@@ -49,9 +51,19 @@ class WorkflowLabelTests(unittest.TestCase):
                 "wf:awaiting-gpt-review",
                 "wf:rework-needed",
                 "wf:frontend-passed",
+                "wf:backend-queued",
+                "wf:backend-running",
+                "wf:awaiting-backend-review",
+                "wf:backend-blocked",
+                "wf:backend-passed",
+                "wf:backend-failed",
                 "wf:failed",
             ),
         )
+
+    def test_phase2a_marker_constants_are_stable(self) -> None:
+        self.assertEqual(MARKER_BACKEND_RUN, "<!-- wf:backend-run -->")
+        self.assertEqual(MARKER_BACKEND_REVIEW, "<!-- wf:backend-review -->")
 
     def test_find_latest_marker_comment_prefers_updated_timestamp(self) -> None:
         comments = [
@@ -125,6 +137,32 @@ class CommandRouterTests(unittest.TestCase):
 
         self.assertTrue(result.accepted)
         self.assertEqual(result.target_state, "wf:codex-queued")
+
+    def test_continue_backend_requeues_after_frontend_pass(self) -> None:
+        result = evaluate_command(
+            command="/continue-backend",
+            current_state="wf:frontend-passed",
+            author_association="OWNER",
+            command_created_at="2026-04-17T10:00:00Z",
+            latest_plan_updated_at="2026-04-17T09:00:00Z",
+            latest_gpt_review_updated_at="2026-04-17T09:30:00Z",
+        )
+
+        self.assertTrue(result.accepted)
+        self.assertEqual(result.target_state, "wf:backend-queued")
+
+    def test_continue_backend_can_retry_from_backend_blocked(self) -> None:
+        result = evaluate_command(
+            command="/continue-backend",
+            current_state="wf:backend-blocked",
+            author_association="OWNER",
+            command_created_at="2026-04-17T10:05:00Z",
+            latest_plan_updated_at="2026-04-17T09:00:00Z",
+            latest_gpt_review_updated_at="2026-04-17T09:30:00Z",
+        )
+
+        self.assertTrue(result.accepted)
+        self.assertEqual(result.target_state, "wf:backend-queued")
 
 
 class PlannerPayloadTests(unittest.TestCase):
@@ -257,12 +295,24 @@ class WorkflowFilesTests(unittest.TestCase):
         workflow_dir = Path(__file__).resolve().parents[1] / ".github" / "workflows"
         workflow_files = (
             workflow_dir / "frontend-review.yml",
+            workflow_dir / "backend-review.yml",
             workflow_dir / "request-plan.yml",
         )
 
         for workflow_file in workflow_files:
             content = workflow_file.read_text(encoding="utf-8")
             self.assertIn("OPENAI_API_KEY: ${{ secrets.KUAIPAO_API_GPT }}", content)
+
+    def test_review_workflows_checkout_default_branch_code(self) -> None:
+        workflow_dir = Path(__file__).resolve().parents[1] / ".github" / "workflows"
+        workflow_files = (
+            workflow_dir / "frontend-review.yml",
+            workflow_dir / "backend-review.yml",
+        )
+
+        for workflow_file in workflow_files:
+            content = workflow_file.read_text(encoding="utf-8")
+            self.assertIn("ref: refs/heads/${{ github.event.repository.default_branch }}", content)
 
 
 if __name__ == "__main__":

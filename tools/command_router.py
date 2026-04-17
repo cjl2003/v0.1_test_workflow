@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Route phase-1 PR slash commands into workflow-state transitions."""
+"""Route PR slash commands into phase-1 and phase-2A state transitions."""
 
 from __future__ import annotations
 
@@ -37,7 +37,7 @@ def evaluate_command(
     latest_plan_updated_at: str | None,
     latest_gpt_review_updated_at: str | None,
 ) -> CommandDecision:
-    """Validate `/approve-plan` and `/codex-fix` against the phase-1 protocol."""
+    """Validate the minimal slash-command surface for phase-1 and phase-2A."""
     normalized = command.strip()
     if not is_trusted_author(author_association):
         return CommandDecision(False, None, "Command author is not trusted.")
@@ -78,12 +78,23 @@ def evaluate_command(
             )
         return CommandDecision(True, "wf:codex-queued", "Minimal repair round accepted.")
 
+    if normalized.startswith("/continue-backend"):
+        if current_state not in {"wf:frontend-passed", "wf:backend-blocked"}:
+            return CommandDecision(
+                False,
+                None,
+                "Current primary state must be wf:frontend-passed or wf:backend-blocked.",
+            )
+        return CommandDecision(True, "wf:backend-queued", "Backend start accepted.")
+
     return CommandDecision(False, None, f"Unsupported command: {normalized}")
 
 
 def parse_args() -> argparse.Namespace:
     """Parse CLI arguments used by GitHub Actions."""
-    parser = argparse.ArgumentParser(description="Route /approve-plan and /codex-fix.")
+    parser = argparse.ArgumentParser(
+        description="Route /approve-plan, /codex-fix, and /continue-backend."
+    )
     parser.add_argument("pr_number", type=int, nargs="?", help="Pull request number.")
     parser.add_argument("--command-body", dest="command_body", help="Raw PR comment body.")
     parser.add_argument(
