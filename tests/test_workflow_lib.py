@@ -1,4 +1,5 @@
 import unittest
+from pathlib import Path
 
 from tools.command_router import evaluate_command
 from tools.frontend_review import normalize_review_payload
@@ -185,6 +186,19 @@ class FrontendReviewPayloadTests(unittest.TestCase):
 
         self.assertEqual(normalized.target_state, "wf:rework-needed")
         self.assertIn("Outcome: `rework-needed`", normalized.body)
+
+
+class WorkflowFilesTests(unittest.TestCase):
+    def test_review_workflows_read_openai_key_from_1orpm_secret(self) -> None:
+        workflow_dir = Path(__file__).resolve().parents[1] / ".github" / "workflows"
+        workflow_files = (
+            workflow_dir / "request-plan.yml",
+            workflow_dir / "frontend-review.yml",
+        )
+
+        for workflow_file in workflow_files:
+            content = workflow_file.read_text(encoding="utf-8")
+            self.assertIn("OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY_1ORPM }}", content)
 
 
 if __name__ == "__main__":
