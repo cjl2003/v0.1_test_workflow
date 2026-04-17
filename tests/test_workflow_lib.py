@@ -1,4 +1,5 @@
 import unittest
+from pathlib import Path
 
 from tools.command_router import evaluate_command
 from tools.frontend_review import normalize_review_payload
@@ -185,6 +186,21 @@ class FrontendReviewPayloadTests(unittest.TestCase):
 
         self.assertEqual(normalized.target_state, "wf:rework-needed")
         self.assertIn("Outcome: `rework-needed`", normalized.body)
+
+
+class WorkflowFilesTests(unittest.TestCase):
+    def test_workflows_use_node24_compatible_action_versions(self) -> None:
+        workflow_dir = Path(__file__).resolve().parents[1] / ".github" / "workflows"
+        workflow_files = (
+            workflow_dir / "command-router.yml",
+            workflow_dir / "frontend-review.yml",
+            workflow_dir / "request-plan.yml",
+        )
+
+        for workflow_file in workflow_files:
+            content = workflow_file.read_text(encoding="utf-8")
+            self.assertIn("uses: actions/checkout@v6", content)
+            self.assertIn("uses: actions/setup-python@v6", content)
 
 
 if __name__ == "__main__":
