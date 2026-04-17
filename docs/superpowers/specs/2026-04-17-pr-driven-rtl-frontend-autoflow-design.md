@@ -12,7 +12,7 @@ Build a phase-1 automation loop for the competition workflow that can:
 - verify `RTL + testbench + golden check`
 - push code and run results back to GitHub for a final GPT-5.4 frontend review
 
-This phase ends when the frontend requirement passes or GPT-5.4 requests rework.
+This phase ends when the frontend requirement passes, requires rework, or fails.
 
 ## Scope
 
@@ -126,7 +126,7 @@ State rules:
 - every new request PR starts at `wf:intake`
 - GPT clarification output moves the PR to `wf:needs-clarification`
 - GPT plan output moves the PR to `wf:awaiting-plan-approval`
-- `/approve-plan` moves the PR to `wf:codex-queued`
+- a valid `/approve-plan` issued after the latest `wf:plan` moves the PR to `wf:codex-queued`
 - local runner claim moves the PR to `wf:codex-running`
 - successful local push moves the PR to `wf:awaiting-gpt-review`
 - GPT frontend acceptance moves the PR to `wf:frontend-passed`
@@ -142,13 +142,13 @@ Each request is stored in:
 - `docs/requests/YYYY-MM-DD-<slug>.md`
 
 The request document is the source of truth for the requested frontend work.
+PR labels are the source of truth for workflow state.
 
 Required content:
 
 - request id
 - title
 - stage
-- status
 - base branch
 - work branch
 - version
@@ -183,7 +183,7 @@ Questions must be minimal, explicit, and directly block planning.
 
 ### Run Result Document
 
-Each local execution writes:
+Each successful local execution writes:
 
 - `docs/runs/<request_id>/<timestamp>.md`
 
@@ -213,7 +213,7 @@ This comment contains:
 - tag when available
 - verification summary
 - failure step when applicable
-- link or path reference to the run result document
+- link or path reference to the run result document for successful runs
 
 ### GPT Review Comment
 
@@ -225,7 +225,6 @@ Allowed review outcomes:
 
 - `pass`
 - `rework-needed`
-- `blocked`
 
 ## Command Protocol
 
@@ -233,8 +232,6 @@ Formal PR commands:
 
 - `/answer ...`
 - `/approve-plan`
-- `/retry-codex`
-- `/cancel-run`
 - `/replan`
 
 Phase-1 required commands:
@@ -244,16 +241,12 @@ Phase-1 required commands:
 
 Phase-1 optional but supported commands:
 
-- `/retry-codex`
-- `/cancel-run`
 - `/replan`
 
 Behavior:
 
 - `/answer ...` provides clarification input to GPT-5.4
-- `/approve-plan` authorizes local execution of the latest plan
-- `/retry-codex` requeues the current approved plan after a failed run
-- `/cancel-run` halts further automation for the current PR
+- `/approve-plan` authorizes local execution only when it is issued after the latest `wf:plan`
 - `/replan` asks GPT-5.4 to discard the current plan and publish a new one
 
 ## Workflow Components
@@ -264,7 +257,8 @@ GitHub workflow: `request-plan.yml`
 
 Triggers:
 
-- PR opened or synchronized
+- PR opened
+- PR synchronized while the primary state is `wf:intake`, `wf:needs-clarification`, or `wf:rework-needed`
 - PR comment with `/answer ...`
 - PR comment with `/replan`
 
@@ -287,12 +281,13 @@ GitHub workflow: `command-router.yml`
 
 Triggers:
 
-- PR comments containing formal workflow commands
+- PR comments containing `/approve-plan`
 
 Responsibilities:
 
 - validate command format and author permission
-- move the PR into the correct workflow state
+- validate that `/approve-plan` is newer than the latest `wf:plan`
+- move the PR into the correct workflow state only when that approval is valid
 - avoid generating plan or review content itself
 
 ### Workflow 3: Frontend Review
@@ -324,7 +319,7 @@ The runner may only claim a PR when all of the following are true:
 - primary state is `wf:codex-queued`
 - the PR is from the same repository
 - a latest `wf:plan` comment exists
-- a valid `/approve-plan` command exists after the latest plan
+- a valid `/approve-plan` command exists for the latest plan
 - no other local job is currently active
 
 Jobs are processed FIFO by queue time.
@@ -337,7 +332,7 @@ Jobs are processed FIFO by queue time.
 4. Transition the PR to `wf:codex-running`.
 5. Edit only the files required for the approved frontend work.
 6. Run frontend verification.
-7. Write the run result document.
+7. On success, write the run result document.
 8. On success, commit changes, create a tag, and push branch plus tag.
 9. Update the `wf:codex-run` comment.
 10. Transition the PR to `wf:awaiting-gpt-review`.
@@ -367,6 +362,7 @@ Successful local runs create:
 - an annotated tag in the format `v0.1_frontend_pass_YYYYMMDD_HHMMSS_r001`
 
 Failed local runs do not push partial code changes in phase 1.
+Failed local runs do not commit `docs/runs/...md` in phase 1.
 
 ## Error Handling
 
@@ -384,6 +380,7 @@ If the runner fails before successful verification:
 - preserve the local worktree
 - preserve local logs and patch data on Windows
 - update `wf:codex-run` with the failure stage and summary
+- do not write a repository run result document for that failed run
 - move the PR to `wf:failed`
 
 ### Interrupted Jobs
@@ -408,7 +405,7 @@ The system does not auto-replan or auto-rerun in phase 1.
 Repository retention:
 
 - request documents
-- run result summaries
+- successful run result summaries
 - implementation commits
 - tags
 - machine-readable PR comments
