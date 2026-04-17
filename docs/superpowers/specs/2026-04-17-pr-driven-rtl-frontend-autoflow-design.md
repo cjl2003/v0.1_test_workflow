@@ -128,7 +128,7 @@ State rules:
 - GPT plan output moves the PR to `wf:awaiting-plan-approval`
 - a valid `/approve-plan` issued after the latest `wf:plan` moves the PR to `wf:codex-queued`
 - local runner claim moves the PR to `wf:codex-running`
-- successful local push moves the PR to `wf:awaiting-gpt-review`
+- before the success push, the runner moves the PR to `wf:awaiting-gpt-review`
 - GPT frontend acceptance moves the PR to `wf:frontend-passed`
 - GPT frontend rejection moves the PR to `wf:rework-needed`
 - any unrecoverable local or orchestration error moves the PR to `wf:failed`
