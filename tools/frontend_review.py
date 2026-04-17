@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import re
 import textwrap
 from pathlib import Path
 from typing import Any
@@ -27,6 +28,29 @@ from tools.workflow_lib import (
     render_marked_comment,
     truncate_text,
 )
+
+WORKFLOW_ARTIFACT_PREFIXES = ("docs/requests/", "docs/runs/")
+
+
+def partition_changed_paths(diff_text: str) -> tuple[list[str], list[str]]:
+    """Split changed paths into scoped content files and allowed workflow artifacts."""
+    all_paths: list[str] = []
+    for line in diff_text.splitlines():
+        match = re.match(r"^diff --git a/(.+?) b/(.+)$", line.strip())
+        if not match:
+            continue
+        path = match.group(2).strip()
+        if path not in all_paths:
+            all_paths.append(path)
+
+    scoped_paths: list[str] = []
+    artifact_paths: list[str] = []
+    for path in all_paths:
+        if path.startswith(WORKFLOW_ARTIFACT_PREFIXES):
+            artifact_paths.append(path)
+        else:
+            scoped_paths.append(path)
+    return scoped_paths, artifact_paths
 
 
 def normalize_review_payload(payload: dict[str, Any]) -> RenderedComment:
@@ -69,6 +93,7 @@ def build_review_instructions() -> str:
         - You must return exactly one outcome: "pass" or "rework-needed".
         - Stay inside phase-1. Do not propose replanning, rerunning, or backend expansion.
         - If rework is needed, scope it to the latest changed code and run result evidence.
+        - Treat `docs/requests/*.md` and `docs/runs/**` as allowed phase-1 workflow artifacts; do not treat them as scope violations.
         - Keep the review grounded in the provided diff, plan, codex-run comment, and run result.
         - Return JSON only.
 
@@ -95,6 +120,7 @@ def load_review_context(pr_number: int, client: GitHubClient) -> str:
         raise WorkflowError("Cannot run frontend review without a latest wf:codex-run comment.")
 
     diff_text = client.fetch_pull_request_diff(pr_number)
+    scoped_paths, artifact_paths = partition_changed_paths(diff_text)
     plan_body = str(latest_plan.get("body", "")).strip()
     run_body = str(latest_run.get("body", "")).strip()
 
@@ -111,6 +137,18 @@ def load_review_context(pr_number: int, client: GitHubClient) -> str:
         indent_block("Latest Approved Plan", plan_body),
         indent_block("Latest Codex Run Comment", run_body),
         indent_block("Latest Run Result Document", truncate_text(run_result, 12000)),
+        indent_block(
+            "Changed File Classification",
+            "\n".join(
+                [
+                    "Scoped content changes:",
+                    *([f"- {path}" for path in scoped_paths] or ["- (none)"]),
+                    "",
+                    "Allowed phase-1 workflow artifacts:",
+                    *([f"- {path}" for path in artifact_paths] or ["- (none)"]),
+                ]
+            ),
+        ),
         indent_block("Latest Pull Request Diff", truncate_text(diff_text, 24000)),
     ]
     return "\n\n".join(blocks)
