@@ -259,7 +259,7 @@ GitHub workflow: `request-plan.yml`
 Triggers:
 
 - PR opened
-- PR synchronized while the primary state is `wf:intake`, `wf:needs-clarification`, or `wf:rework-needed`
+- PR synchronized while the primary state is `wf:intake` or `wf:needs-clarification`
 - PR comment with `/answer ...`
 
 Inputs:
