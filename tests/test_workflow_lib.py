@@ -1,4 +1,5 @@
 import unittest
+from pathlib import Path
 from unittest import mock
 
 import requests
@@ -249,6 +250,19 @@ class OpenAIResponseDiagnosticsTests(unittest.TestCase):
         self.assertIn("HTTP 200", str(error.exception))
         self.assertIn("text/html", str(error.exception))
         self.assertIn("<html>bad gateway</html>", str(error.exception))
+
+
+class WorkflowFilesTests(unittest.TestCase):
+    def test_review_workflows_use_kuaipao_secret(self) -> None:
+        workflow_dir = Path(__file__).resolve().parents[1] / ".github" / "workflows"
+        workflow_files = (
+            workflow_dir / "frontend-review.yml",
+            workflow_dir / "request-plan.yml",
+        )
+
+        for workflow_file in workflow_files:
+            content = workflow_file.read_text(encoding="utf-8")
+            self.assertIn("OPENAI_API_KEY: ${{ secrets.KUAIPAO_API_GPT }}", content)
 
 
 if __name__ == "__main__":
