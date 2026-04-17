@@ -1,10 +1,14 @@
+import tempfile
 import unittest
+from pathlib import Path
+from unittest import mock
 
 from tools.runner_pickup import (
     build_success_tag,
     parse_request_metadata,
     render_codex_run_comment,
     render_run_result_document,
+    run_command,
     select_execution_mode,
 )
 
@@ -116,6 +120,31 @@ class RunnerFlowTests(unittest.TestCase):
 
         self.assertIn("- Failure Step: `verification`", comment)
         self.assertNotIn("Run Result Path", comment)
+
+    def test_run_command_uses_utf8_for_stdin_text(self) -> None:
+        captured: dict[str, object] = {}
+
+        def fake_run(*args, **kwargs):
+            captured.update(kwargs)
+            return mock.Mock(returncode=0, stdout="ok", stderr="")
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            stdout_path = Path(tmpdir) / "stdout.log"
+            stderr_path = Path(tmpdir) / "stderr.log"
+
+            with mock.patch("tools.runner_pickup.subprocess.run", side_effect=fake_run):
+                result = run_command(
+                    ["cmd", "/c", "echo", "ok"],
+                    cwd=Path(tmpdir),
+                    stdout_path=stdout_path,
+                    stderr_path=stderr_path,
+                    input_text="中文 prompt",
+                )
+
+        self.assertEqual(result.returncode, 0)
+        self.assertEqual(captured["input"], "中文 prompt")
+        self.assertEqual(captured["encoding"], "utf-8")
+        self.assertTrue(captured["text"])
 
 
 if __name__ == "__main__":

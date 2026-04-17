@@ -262,14 +262,18 @@ def run_command(
     input_text: str | None = None,
 ) -> CommandResult:
     """Run a subprocess, capture logs, and return its outputs."""
-    completed = subprocess.run(
-        command,
-        cwd=str(cwd),
-        capture_output=True,
-        text=True,
-        input=input_text,
-        check=False,
-    )
+    run_kwargs: dict[str, Any] = {
+        "cwd": str(cwd),
+        "capture_output": True,
+        "text": True,
+        "input": input_text,
+        "check": False,
+    }
+    if input_text is not None:
+        # `codex exec -` requires UTF-8 on stdin; Windows locale encodings break non-ASCII prompts.
+        run_kwargs["encoding"] = "utf-8"
+        run_kwargs["errors"] = "replace"
+    completed = subprocess.run(command, **run_kwargs)
     stdout_path.write_text(completed.stdout, encoding="utf-8", errors="ignore")
     stderr_path.write_text(completed.stderr, encoding="utf-8", errors="ignore")
     return CommandResult(
