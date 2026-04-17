@@ -1,11 +1,18 @@
 import unittest
+from unittest import mock
+
+import requests
 
 from tools.command_router import evaluate_command
 from tools.frontend_review import normalize_review_payload
 from tools.request_planner import normalize_planner_payload
 from tools.workflow_lib import (
+    OpenAIConfig,
     PRIMARY_LABELS,
+    WorkflowError,
     build_primary_label_set,
+    call_openai_chat_completions_text,
+    call_openai_responses_text,
     find_latest_marker_comment,
 )
 
@@ -185,6 +192,63 @@ class FrontendReviewPayloadTests(unittest.TestCase):
 
         self.assertEqual(normalized.target_state, "wf:rework-needed")
         self.assertIn("Outcome: `rework-needed`", normalized.body)
+
+
+class OpenAIResponseDiagnosticsTests(unittest.TestCase):
+    @staticmethod
+    def make_openai_config() -> OpenAIConfig:
+        return OpenAIConfig(
+            openai_api_key="sk-test",
+            openai_api_base="https://example.invalid/v1",
+            openai_model="gpt-5.4",
+            openai_endpoint_style="chat_completions",
+            openai_reasoning_effort="medium",
+            max_output_tokens=1800,
+        )
+
+    @staticmethod
+    def make_non_json_response() -> mock.Mock:
+        response = mock.Mock()
+        response.status_code = 200
+        response.text = "<html>bad gateway</html>"
+        response.headers = {"Content-Type": "text/html; charset=utf-8"}
+        response.raise_for_status.return_value = None
+        response.json.side_effect = requests.exceptions.JSONDecodeError(
+            "Expecting value", "", 0
+        )
+        return response
+
+    def test_chat_completions_reports_non_json_response_details(self) -> None:
+        with mock.patch(
+            "tools.workflow_lib.requests.post",
+            return_value=self.make_non_json_response(),
+        ):
+            with self.assertRaises(WorkflowError) as error:
+                call_openai_chat_completions_text(
+                    self.make_openai_config(),
+                    "system instructions",
+                    "user input",
+                )
+
+        self.assertIn("HTTP 200", str(error.exception))
+        self.assertIn("text/html", str(error.exception))
+        self.assertIn("<html>bad gateway</html>", str(error.exception))
+
+    def test_responses_api_reports_non_json_response_details(self) -> None:
+        with mock.patch(
+            "tools.workflow_lib.requests.post",
+            return_value=self.make_non_json_response(),
+        ):
+            with self.assertRaises(WorkflowError) as error:
+                call_openai_responses_text(
+                    self.make_openai_config(),
+                    "system instructions",
+                    "user input",
+                )
+
+        self.assertIn("HTTP 200", str(error.exception))
+        self.assertIn("text/html", str(error.exception))
+        self.assertIn("<html>bad gateway</html>", str(error.exception))
 
 
 if __name__ == "__main__":
