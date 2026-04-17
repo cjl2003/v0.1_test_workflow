@@ -12,7 +12,7 @@ Build a phase-1 automation loop for the competition workflow that can:
 - verify `RTL + testbench + golden check`
 - push code and run results back to GitHub for a final GPT-5.4 frontend review
 
-This phase ends when the frontend requirement passes, requires rework, or fails.
+This phase pauses for manual action when frontend review requests rework, and ends when the frontend requirement passes or fails.
 
 ## Scope
 
@@ -48,7 +48,7 @@ The phase-1 system is successful when one request can complete the following pat
 5. Local Codex picks up the approved plan, edits frontend files, and runs frontend verification.
 6. Local Codex writes a run summary, creates a tag, and pushes the result.
 7. GPT-5.4 reviews the changed frontend code and run results.
-8. The PR ends in either `wf:frontend-passed`, `wf:rework-needed`, or `wf:failed`.
+8. The PR either reaches `wf:frontend-passed`, pauses in `wf:rework-needed` until a user-issued `/codex-fix` requeues one minimal repair round, or ends in `wf:failed`.
 
 ## Architecture
 
@@ -131,6 +131,7 @@ State rules:
 - before the success push, the runner moves the PR to `wf:awaiting-gpt-review`
 - GPT frontend acceptance moves the PR to `wf:frontend-passed`
 - GPT frontend rejection moves the PR to `wf:rework-needed`
+- a valid `/codex-fix` issued while the primary state is `wf:rework-needed` moves the PR to `wf:codex-queued` for one minimal repair round based on the latest `wf:gpt-review`
 - any unrecoverable local or orchestration error moves the PR to `wf:failed`
 
 ## Data Model
@@ -232,6 +233,7 @@ Formal PR commands:
 
 - `/answer ...`
 - `/approve-plan`
+- `/codex-fix`
 
 Phase-1 required commands:
 
@@ -240,12 +242,13 @@ Phase-1 required commands:
 
 Phase-1 optional but supported commands:
 
-None.
+- `/codex-fix`
 
 Behavior:
 
 - `/answer ...` provides clarification input to GPT-5.4
 - `/approve-plan` authorizes local execution only when it is issued after the latest `wf:plan`
+- `/codex-fix` requeues a PR from `wf:rework-needed` into `wf:codex-queued` for exactly one manual minimal repair round based only on the latest `wf:gpt-review`
 
 ## Workflow Components
 
@@ -279,12 +282,16 @@ GitHub workflow: `command-router.yml`
 Triggers:
 
 - PR comments containing `/approve-plan`
+- PR comments containing `/codex-fix`
 
 Responsibilities:
 
 - validate command format and author permission
 - validate that `/approve-plan` is newer than the latest `wf:plan`
 - move the PR into the correct workflow state only when that approval is valid
+- validate that `/codex-fix` is issued while the PR is in `wf:rework-needed`
+- validate that a latest `wf:gpt-review` comment exists before accepting `/codex-fix`
+- move the PR to `wf:codex-queued` only for that minimal repair round
 - avoid generating plan or review content itself
 
 ### Workflow 3: Frontend Review
@@ -334,6 +341,17 @@ Jobs are processed FIFO by queue time.
 8. On success, commit changes and create a tag.
 9. On success, transition the PR to `wf:awaiting-gpt-review`.
 10. On success, push branch plus tag and then update the `wf:codex-run` comment.
+
+### Rework Repair Round
+
+When a PR is requeued from `wf:rework-needed` by a valid `/codex-fix`, the runner performs one manual minimal repair round.
+
+For that repair round, the runner must:
+
+- use the latest `wf:gpt-review` comment as the repair input
+- limit edits to the smallest safe changes needed to address that review
+- avoid reopening planning or broadening scope into a new implementation round
+- return to the same verification and GPT review handoff path after the repair
 
 ### Verification Contract
 
@@ -395,6 +413,8 @@ If GPT-5.4 judges the frontend result insufficient:
 
 - publish `wf:gpt-review` with `rework-needed`
 - move the PR to `wf:rework-needed`
+- do not auto-rerun or auto-replan
+- allow a user-issued valid `/codex-fix` to requeue exactly one minimal repair round based on the latest `wf:gpt-review`
 
 The system does not auto-replan or auto-rerun in phase 1.
 
@@ -434,6 +454,7 @@ The repository stores summarized evidence only. Full logs remain on the Windows 
 - confirm ambiguous requests produce `wf:clarification`
 - answer with `/answer ...` and confirm GPT-5.4 updates the plan
 - approve with `/approve-plan` and confirm state becomes `wf:codex-queued`
+- after a `wf:rework-needed` review result, issue `/codex-fix` and confirm state returns to `wf:codex-queued`
 
 ### Runner Testing
 
@@ -453,7 +474,7 @@ The repository stores summarized evidence only. Full logs remain on the Windows 
 
 1. Implement request submission and request-file creation.
 2. Implement GPT clarification and plan publication.
-3. Implement direct GPT planning triggers for `/answer ...` and command routing for `/approve-plan`.
+3. Implement direct GPT planning triggers for `/answer ...` and command routing for `/approve-plan` plus `/codex-fix`.
 4. Implement local runner pickup, isolated worktree execution, and fixed frontend verification.
 5. Implement run-summary persistence, commit, tag, and push behavior.
 6. Implement GPT frontend re-review and final phase-1 state transitions.
