@@ -518,6 +518,22 @@ def extract_chat_completions_text(response_json: dict[str, Any]) -> str:
     return ""
 
 
+def parse_json_response(response: requests.Response, context: str) -> Any:
+    """Decode a JSON response while preserving non-JSON diagnostics."""
+    try:
+        return response.json()
+    except requests.exceptions.JSONDecodeError as error:
+        body = response.text.strip()
+        snippet = body[:1000] if body else "<empty response>"
+        content_type = str(response.headers.get("Content-Type", "")).strip()
+        if not content_type:
+            content_type = "<missing content-type>"
+        raise WorkflowError(
+            f"{context} returned non-JSON response with HTTP {response.status_code}. "
+            f"Content-Type: {content_type}. Body: {snippet}"
+        ) from error
+
+
 def call_openai_text(
     config: OpenAIConfig, instructions: str, user_input: str
 ) -> tuple[str, str]:
@@ -566,7 +582,7 @@ def call_openai_responses_text(
     )
     raise_for_status(response, "Calling OpenAI Responses API")
 
-    data = response.json()
+    data = parse_json_response(response, "Calling OpenAI Responses API")
     if not isinstance(data, dict):
         raise WorkflowError("Unexpected OpenAI Responses payload format.")
 
@@ -600,7 +616,7 @@ def call_openai_chat_completions_text(
     )
     raise_for_status(response, "Calling OpenAI-compatible chat completions API")
 
-    data = response.json()
+    data = parse_json_response(response, "Calling OpenAI-compatible chat completions API")
     if not isinstance(data, dict):
         raise WorkflowError("Unexpected chat completions payload format.")
 
