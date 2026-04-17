@@ -71,4 +71,4 @@ jobs:
           OPENAI_REASONING_EFFORT: ${{ vars.OPENAI_REASONING_EFFORT }}
           OPENAI_MAX_OUTPUT_TOKENS: ${{ vars.OPENAI_MAX_OUTPUT_TOKENS }}
           PR_NUMBER: ${{ github.event.pull_request.number || github.event.issue.number }}
-        run: python tools/frontend_review.py
+        run: python -m tools.frontend_review
