@@ -1,5 +1,21 @@
 # 新手版说明：这个自动审核系统现在是什么
 
+> Phase-1 提示
+>
+> 本仓库当前以
+> `docs/superpowers/specs/2026-04-17-pr-driven-rtl-frontend-autoflow-design.md`
+> 为准。
+>
+> 当前生效的是 `wf:*` 状态机与这三条 workflow：
+>
+> - `.github/workflows/request-plan.yml`
+> - `.github/workflows/command-router.yml`
+> - `.github/workflows/frontend-review.yml`
+>
+> 旧的 `codex-fix-pending` / `codex-fix-applied` / `codex-fix-failed` 标签流程
+> 已不是当前实现协议；如果下文仍提到旧标签，请以 phase-1 spec 和上述
+> workflow 为准。
+
 ## 1. 这套系统现在是什么
 
 这是一套给 GitHub PR 用的“自动审代码”系统。

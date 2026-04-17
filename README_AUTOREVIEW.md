@@ -1,5 +1,38 @@
 # PR Auto Review for RTL / Verilog
 
+> Phase-1 note
+>
+> This repository has moved to the PR-driven phase-1 workflow defined in
+> `docs/superpowers/specs/2026-04-17-pr-driven-rtl-frontend-autoflow-design.md`.
+> The old `codex-fix-pending` / `codex-fix-applied` / `codex-fix-failed` label
+> protocol and the old `.github/workflows/auto-review.yml` /
+> `.github/workflows/codex-fix.yml` files are no longer the active source of
+> truth.
+>
+> Current phase-1 workflow files:
+>
+> - `.github/workflows/request-plan.yml`
+> - `.github/workflows/command-router.yml`
+> - `.github/workflows/frontend-review.yml`
+>
+> Current primary PR states:
+>
+> - `wf:intake`
+> - `wf:needs-clarification`
+> - `wf:awaiting-plan-approval`
+> - `wf:codex-queued`
+> - `wf:codex-running`
+> - `wf:awaiting-gpt-review`
+> - `wf:rework-needed`
+> - `wf:frontend-passed`
+> - `wf:failed`
+>
+> Current phase-1 commands:
+>
+> - `/answer ...`
+> - `/approve-plan`
+> - `/codex-fix`
+
 ## What this system does now
 
 This repository now uses a true hybrid two-stage loop:
