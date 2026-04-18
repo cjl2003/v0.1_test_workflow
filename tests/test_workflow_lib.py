@@ -202,7 +202,10 @@ class AnthropicWorkflowTests(unittest.TestCase):
     @patch("tools.workflow_lib.requests.post")
     def test_call_openai_text_uses_anthropic_messages_endpoint(self, mock_post: Mock) -> None:
         mock_response = Mock()
-        mock_response.json.return_value = {"id": "msg_123", "content": []}
+        mock_response.json.return_value = {
+            "id": "msg_123",
+            "content": [{"type": "text", "text": "ok"}],
+        }
         mock_response.status_code = 200
         mock_post.return_value = mock_response
 
