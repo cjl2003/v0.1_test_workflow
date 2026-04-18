@@ -231,6 +231,10 @@ class AnthropicWorkflowTests(unittest.TestCase):
             mock_post.call_args.kwargs["json"]["messages"],
             [{"role": "user", "content": "user text"}],
         )
+        self.assertEqual(
+            mock_post.call_args.kwargs["json"]["model"],
+            config.openai_model,
+        )
         self.assertEqual(mock_post.call_args.kwargs["json"]["max_tokens"], 1800)
         self.assertEqual(
             mock_post.call_args.kwargs["headers"]["x-api-key"],
