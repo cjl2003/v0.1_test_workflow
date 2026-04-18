@@ -3,15 +3,17 @@ import os
 import unittest
 from unittest import mock
 
+from tools import workflow_lib
 from tools.reviewer import (
     DEFAULT_MAX_DIFF_CHARS,
     Config,
-    extract_chat_completions_text,
+    ReviewerError,
+    call_openai_review,
     format_failure_comment_body,
     get_env,
     load_config,
-    should_fallback_to_chat_completions,
 )
+from tools.workflow_lib import extract_chat_completions_text, should_fallback_to_chat_completions
 
 
 class ReviewerEnvTests(unittest.TestCase):
@@ -99,6 +101,58 @@ class ReviewerEnvTests(unittest.TestCase):
                 '{"error":{"message":"not implemented","code":"convert_request_failed"}}'
             )
         )
+
+
+class ReviewerSharedClientTests(unittest.TestCase):
+    @mock.patch("tools.reviewer.shared_call_openai_text")
+    def test_call_openai_review_delegates_to_shared_client(self, mock_call: mock.Mock) -> None:
+        mock_call.return_value = ("review body", "msg_456")
+        config = Config(
+            openai_api_key="sk-test",
+            github_token="ghs-test",
+            github_repo="owner/repo",
+            pr_number=2,
+            openai_model="claude-opus-4-7",
+            openai_reasoning_effort="medium",
+            openai_endpoint_style="anthropic_messages",
+            max_diff_chars=120000,
+            max_output_tokens=1800,
+            github_api_base="https://api.github.com",
+            github_api_version="2022-11-28",
+            openai_api_base="https://kuaipao.ai",
+            dry_run=False,
+        )
+
+        review_text, response_id = call_openai_review(config, "rules", "diff")
+
+        self.assertEqual((review_text, response_id), ("review body", "msg_456"))
+        shared_config = mock_call.call_args.args[0]
+        self.assertEqual(shared_config.openai_endpoint_style, "anthropic_messages")
+        self.assertEqual(shared_config.openai_api_base, "https://kuaipao.ai")
+
+    @mock.patch("tools.reviewer.shared_call_openai_text")
+    def test_call_openai_review_wraps_workflow_errors(self, mock_call: mock.Mock) -> None:
+        mock_call.side_effect = workflow_lib.WorkflowError("shared failure")
+        config = Config(
+            openai_api_key="sk-test",
+            github_token="ghs-test",
+            github_repo="owner/repo",
+            pr_number=2,
+            openai_model="claude-opus-4-7",
+            openai_reasoning_effort="medium",
+            openai_endpoint_style="anthropic_messages",
+            max_diff_chars=120000,
+            max_output_tokens=1800,
+            github_api_base="https://api.github.com",
+            github_api_version="2022-11-28",
+            openai_api_base="https://kuaipao.ai",
+            dry_run=False,
+        )
+
+        with self.assertRaises(ReviewerError) as error:
+            call_openai_review(config, "rules", "diff")
+
+        self.assertIn("shared failure", str(error.exception))
 
 
 if __name__ == "__main__":
