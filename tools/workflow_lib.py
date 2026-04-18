@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Shared helpers for the phase-1 PR-driven workflow."""
+"""Shared helpers for the PR-driven frontend and phase-2A workflow."""
 
 from __future__ import annotations
 
@@ -26,6 +26,12 @@ PRIMARY_LABELS = (
     "wf:awaiting-gpt-review",
     "wf:rework-needed",
     "wf:frontend-passed",
+    "wf:backend-queued",
+    "wf:backend-running",
+    "wf:awaiting-backend-review",
+    "wf:backend-blocked",
+    "wf:backend-passed",
+    "wf:backend-failed",
     "wf:failed",
 )
 
@@ -38,6 +44,30 @@ PRIMARY_LABEL_META = {
     "wf:awaiting-gpt-review": ("5319E7", "Local run succeeded and is waiting for GPT review."),
     "wf:rework-needed": ("D93F0B", "GPT review requested a minimal rework round."),
     "wf:frontend-passed": ("006B75", "Frontend work passed GPT review."),
+    "wf:backend-queued": (
+        "C2E0C6",
+        "Phase-2A synthesis and Formal EC are queued for local Codex execution.",
+    ),
+    "wf:backend-running": (
+        "0E8A16",
+        "Local Codex has claimed the phase-2A baseline run and is running.",
+    ),
+    "wf:awaiting-backend-review": (
+        "5319E7",
+        "Phase-2A baseline artifacts are waiting for GPT review.",
+    ),
+    "wf:backend-blocked": (
+        "D93F0B",
+        "Phase-2A is blocked on SSH or another prerequisite.",
+    ),
+    "wf:backend-passed": (
+        "006B75",
+        "Phase-2A synthesis and Formal EC baseline passed.",
+    ),
+    "wf:backend-failed": (
+        "B60205",
+        "Phase-2A synthesis or Formal EC baseline failed.",
+    ),
     "wf:failed": ("B60205", "Phase-1 flow failed and requires manual attention."),
 }
 
@@ -47,6 +77,8 @@ MARKER_PLAN = "<!-- wf:plan -->"
 MARKER_CLARIFICATION = "<!-- wf:clarification -->"
 MARKER_CODEX_RUN = "<!-- wf:codex-run -->"
 MARKER_GPT_REVIEW = "<!-- wf:gpt-review -->"
+MARKER_BACKEND_RUN = "<!-- wf:backend-run -->"
+MARKER_BACKEND_REVIEW = "<!-- wf:backend-review -->"
 
 DEFAULT_GITHUB_API_BASE = "https://api.github.com"
 DEFAULT_GITHUB_API_VERSION = "2022-11-28"

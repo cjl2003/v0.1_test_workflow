@@ -20,7 +20,8 @@ jobs:
       github.event.issue.pull_request &&
       (
         startsWith(github.event.comment.body, '/approve-plan') ||
-        startsWith(github.event.comment.body, '/codex-fix')
+        startsWith(github.event.comment.body, '/codex-fix') ||
+        startsWith(github.event.comment.body, '/continue-backend')
       )
     runs-on: ubuntu-latest
 

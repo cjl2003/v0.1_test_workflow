@@ -14,6 +14,12 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from tools.backend_runner import (
+    BackendCandidate,
+    build_backend_candidate,
+    execute_backend_candidate,
+    handle_stale_or_interrupted_backend_jobs,
+)
 from tools.workflow_lib import (
     GitHubConfig,
     GitHubClient,
@@ -61,6 +67,7 @@ class QueueCandidate:
     codex_fix_comment: dict[str, Any] | None
     head_branch: str
     same_repo: bool
+    queue_kind: str = "frontend"
 
 
 @dataclass(frozen=True)
@@ -299,7 +306,9 @@ def load_local_github_client() -> GitHubClient:
     return GitHubClient(config)
 
 
-def build_candidate(client: GitHubClient, pr: dict[str, Any]) -> QueueCandidate | None:
+def build_candidate(
+    client: GitHubClient, pr: dict[str, Any]
+) -> QueueCandidate | BackendCandidate | None:
     """Check whether a PR is currently eligible for pickup."""
     pr_number = int(pr["number"])
     current_state = extract_primary_state(
@@ -309,6 +318,8 @@ def build_candidate(client: GitHubClient, pr: dict[str, Any]) -> QueueCandidate 
             if isinstance(label, dict)
         ]
     )
+    if current_state == "wf:backend-queued":
+        return build_backend_candidate(client, pr)
     if current_state != "wf:codex-queued":
         return None
 
@@ -372,10 +383,10 @@ def build_candidate(client: GitHubClient, pr: dict[str, Any]) -> QueueCandidate 
 
 def select_next_candidate(
     client: GitHubClient, target_pr_number: int | None = None
-) -> QueueCandidate | None:
+) -> QueueCandidate | BackendCandidate | None:
     """Pick the next queued PR using FIFO by queue time."""
     prs = client.list_open_pull_requests()
-    candidates: list[QueueCandidate] = []
+    candidates: list[QueueCandidate | BackendCandidate] = []
 
     for pr in prs:
         if target_pr_number is not None and int(pr["number"]) != target_pr_number:
@@ -391,6 +402,16 @@ def select_next_candidate(
         return None
 
     return min(candidates, key=lambda item: parse_timestamp(item.queue_time))
+
+
+def dispatch_candidate(
+    client: GitHubClient, candidate: QueueCandidate | BackendCandidate
+) -> None:
+    """Dispatch one queued candidate to the correct local executor."""
+    if getattr(candidate, "queue_kind", "frontend") == "backend":
+        execute_backend_candidate(client, candidate)
+        return
+    execute_candidate(client, candidate)
 
 
 def mark_failed_run(
@@ -786,12 +807,13 @@ def main() -> int:
     client = load_local_github_client()
     try:
         handle_stale_or_interrupted_jobs(client)
+        handle_stale_or_interrupted_backend_jobs(client)
         candidate = select_next_candidate(client, target_pr_number=args.pr_number)
         if candidate is None:
-            print("No eligible wf:codex-queued PR was found.")
+            print("No eligible wf:codex-queued or wf:backend-queued PR was found.")
             return 0
 
-        execute_candidate(client, candidate)
+        dispatch_candidate(client, candidate)
         print(f"Completed local runner job for PR #{candidate.pr_number}.")
         return 0
     finally:
