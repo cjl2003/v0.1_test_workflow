@@ -159,8 +159,18 @@ def render_formal_review_plan_comment(
     )
 
 
-def render_formal_approval_comment(plan_title: str) -> str:
+def render_formal_approval_comment(
+    plan_title: str,
+    review_plan_comment_id: str,
+    review_plan_comment_url: str,
+) -> str:
     approved_title = _require_non_empty(plan_title, "plan_title")
+    approved_comment_id = _require_non_empty(
+        review_plan_comment_id, "review_plan_comment_id"
+    )
+    approved_comment_url = _require_non_empty(
+        review_plan_comment_url, "review_plan_comment_url"
+    )
     return render_marked_comment(
         MARKER_FORMAL_APPROVAL,
         "Phase-2A Formal Approval",
@@ -170,6 +180,8 @@ def render_formal_approval_comment(plan_title: str) -> str:
         ],
         [
             ("Approved Plan", approved_title),
+            ("Approved Review-Plan Comment ID", approved_comment_id),
+            ("Approved Review-Plan Comment URL", approved_comment_url),
             (
                 "Approval Note",
                 "Approved for execution from the latest wf:formal-review-plan via desktop user via Codex relay.",

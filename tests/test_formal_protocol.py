@@ -204,20 +204,52 @@ class FormalProtocolRenderTests(unittest.TestCase):
             )
 
     def test_render_formal_approval_comment_mentions_plan_title_and_relay(self) -> None:
-        rendered = render_formal_approval_comment("Narrow proof to one compare point")
+        rendered = render_formal_approval_comment(
+            "Narrow proof to one compare point",
+            "202",
+            "https://example.invalid/comment/202",
+        )
 
         self.assertIn("<!-- wf:formal-approval -->", rendered)
         self.assertIn("latest wf:formal-review-plan", rendered)
         self.assertIn("desktop user via Codex relay", rendered)
         self.assertIn("Narrow proof to one compare point", rendered)
+        self.assertIn("Approved Review-Plan Comment ID", rendered)
+        self.assertIn("202", rendered)
+        self.assertIn("Approved Review-Plan Comment URL", rendered)
+        self.assertIn("https://example.invalid/comment/202", rendered)
 
     def test_render_formal_approval_comment_rejects_blank_plan_title(self) -> None:
         with self.assertRaisesRegex(WorkflowError, "plan_title"):
-            render_formal_approval_comment("   ")
+            render_formal_approval_comment(
+                "   ",
+                "202",
+                "https://example.invalid/comment/202",
+            )
 
     def test_render_formal_approval_comment_rejects_none_plan_title(self) -> None:
         with self.assertRaisesRegex(WorkflowError, "plan_title"):
-            render_formal_approval_comment(None)
+            render_formal_approval_comment(
+                None,
+                "202",
+                "https://example.invalid/comment/202",
+            )
+
+    def test_render_formal_approval_comment_rejects_blank_review_plan_comment_id(self) -> None:
+        with self.assertRaisesRegex(WorkflowError, "review_plan_comment_id"):
+            render_formal_approval_comment(
+                "Narrow proof to one compare point",
+                "   ",
+                "https://example.invalid/comment/202",
+            )
+
+    def test_render_formal_approval_comment_rejects_blank_review_plan_comment_url(self) -> None:
+        with self.assertRaisesRegex(WorkflowError, "review_plan_comment_url"):
+            render_formal_approval_comment(
+                "Narrow proof to one compare point",
+                "202",
+                "   ",
+            )
 
 
 if __name__ == "__main__":

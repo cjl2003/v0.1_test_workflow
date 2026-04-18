@@ -22,26 +22,44 @@ from tools.workflow_lib import (
 def post_formal_diagnose(client: GitHubClient, pr_number: int, body: str) -> None:
     if MARKER_FORMAL_DIAGNOSE not in body:
         raise WorkflowError("Formal diagnose body must include the wf:formal-diagnose marker.")
-    client.upsert_marker_comment(pr_number, MARKER_FORMAL_DIAGNOSE, body)
+    client.create_marker_comment(pr_number, MARKER_FORMAL_DIAGNOSE, body)
 
 
-def extract_latest_formal_review_plan(client: GitHubClient, pr_number: int) -> str:
+def extract_latest_formal_review_plan_comment(
+    client: GitHubClient, pr_number: int
+) -> dict[str, object]:
     comments = client.list_issue_comments(pr_number)
     latest = find_latest_marker_comment(comments, MARKER_FORMAL_REVIEW_PLAN)
     if latest is None:
         raise WorkflowError("A latest wf:formal-review-plan comment is required.")
+    return latest
+
+
+def extract_latest_formal_review_plan(client: GitHubClient, pr_number: int) -> str:
+    latest = extract_latest_formal_review_plan_comment(client, pr_number)
     return str(latest.get("body", "")).strip()
 
 
 def approve_latest_formal_plan(client: GitHubClient, pr_number: int) -> None:
-    review_body = extract_latest_formal_review_plan(client, pr_number)
+    latest_review_plan = extract_latest_formal_review_plan_comment(client, pr_number)
+    review_body = str(latest_review_plan.get("body", "")).strip()
     plan_title = extract_comment_field(review_body, "Plan Title")
     if plan_title is None:
         raise WorkflowError("Latest wf:formal-review-plan is missing a Plan Title line.")
-    client.upsert_marker_comment(
+    review_plan_comment_id = latest_review_plan.get("id")
+    if review_plan_comment_id in (None, ""):
+        raise WorkflowError("Latest wf:formal-review-plan comment is missing an id.")
+    review_plan_comment_url = str(latest_review_plan.get("html_url", "")).strip()
+    if not review_plan_comment_url:
+        raise WorkflowError("Latest wf:formal-review-plan comment is missing an html_url.")
+    client.create_marker_comment(
         pr_number,
         MARKER_FORMAL_APPROVAL,
-        render_formal_approval_comment(plan_title),
+        render_formal_approval_comment(
+            plan_title,
+            str(review_plan_comment_id),
+            review_plan_comment_url,
+        ),
     )
 
 

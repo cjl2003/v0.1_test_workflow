@@ -456,6 +456,14 @@ class GitHubClient:
 
         return str(result.get("html_url", ""))
 
+    def create_marker_comment(self, pr_number: int, marker: str, body: str) -> str:
+        """Create a fresh machine-readable comment instead of updating history."""
+        if marker not in body:
+            raise WorkflowError(
+                f"Comment body must include the matching marker: {marker}"
+            )
+        return self.create_issue_comment(pr_number, body)
+
     def create_issue_comment(self, pr_number: int, body: str) -> str:
         result = github_send_json(
             self.session,

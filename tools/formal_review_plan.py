@@ -199,7 +199,7 @@ def main() -> int:
         )
         rendered = normalize_formal_review_plan_payload(payload)
         body = f"{rendered.body}\n\n- OpenAI Response Id: `{response_id}`"
-        client.upsert_marker_comment(pr_number, rendered.marker, body)
+        client.create_marker_comment(pr_number, rendered.marker, body)
         return 0
     finally:
         client.close()

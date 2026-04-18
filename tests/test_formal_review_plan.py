@@ -2,6 +2,7 @@ import unittest
 from unittest import mock
 
 from tools.formal_review_plan import (
+    main,
     load_formal_review_plan_context,
     normalize_formal_review_plan_payload,
 )
@@ -204,6 +205,72 @@ class FormalReviewPlanTests(unittest.TestCase):
                     "do_not_do": ["Do not start a new RTL change direction."],
                 }
             )
+
+    @mock.patch("tools.formal_review_plan.call_openai_json")
+    @mock.patch("tools.formal_review_plan.load_openai_config")
+    @mock.patch("tools.formal_review_plan.load_github_config")
+    @mock.patch("tools.formal_review_plan.parse_args")
+    @mock.patch("tools.formal_review_plan.GitHubClient")
+    def test_main_creates_new_review_plan_comment(
+        self,
+        github_client: mock.Mock,
+        parse_args: mock.Mock,
+        load_github_config: mock.Mock,
+        load_openai_config: mock.Mock,
+        call_openai_json: mock.Mock,
+    ) -> None:
+        parse_args.return_value = mock.Mock(pr_number=20)
+        load_github_config.return_value = mock.Mock()
+        load_openai_config.return_value = mock.Mock()
+        call_openai_json.return_value = (
+            {
+                "decision": "approve",
+                "reasons": ["The diagnose is sufficiently narrow."],
+                "next_plan": {
+                    "title": "Split read_set term",
+                    "hypothesis": "The fail is inside the read-side set path.",
+                    "one_experiment": "Run one deeper localized split.",
+                    "expected_evidence": "One subterm fails while the other proves.",
+                    "stop_condition": "Stop after the single split run.",
+                },
+                "success_criteria": "The blocker is reduced to one named local subterm.",
+                "do_not_do": ["Do not expand back to the full cone."],
+            },
+            "resp_test_123",
+        )
+
+        client = mock.Mock()
+        client.get_pull_request.return_value = {
+            "labels": [{"name": "wf:backend-failed"}],
+        }
+        client.list_issue_comments.return_value = [
+            {
+                "body": "<!-- wf:backend-run -->\n- Run Id: `phase2a-run-a`\nbackend run A",
+                "created_at": "2026-04-18T10:00:00Z",
+                "updated_at": "2026-04-18T10:00:00Z",
+            },
+            {
+                "body": (
+                    "<!-- wf:formal-diagnose -->\n"
+                    "### Context\n"
+                    "- Backend Run ID: `phase2a-run-a`\n"
+                    "formal diagnose summary"
+                ),
+                "created_at": "2026-04-18T10:05:00Z",
+                "updated_at": "2026-04-18T10:05:00Z",
+            },
+        ]
+        github_client.return_value = client
+
+        exit_code = main()
+
+        self.assertEqual(exit_code, 0)
+        client.create_marker_comment.assert_called_once()
+        args = client.create_marker_comment.call_args.args
+        self.assertEqual(args[0], 20)
+        self.assertEqual(args[1], "<!-- wf:formal-review-plan -->")
+        self.assertIn("Decision: `approve`", args[2])
+        self.assertIn("OpenAI Response Id: `resp_test_123`", args[2])
 
 
 if __name__ == "__main__":

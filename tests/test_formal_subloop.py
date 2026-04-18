@@ -54,13 +54,13 @@ class FormalSubloopTests(unittest.TestCase):
         with self.assertRaisesRegex(WorkflowError, "wf:formal-review-plan"):
             extract_latest_formal_review_plan(client, 20)
 
-    def test_post_formal_diagnose_requires_marker_and_upserts_comment(self) -> None:
+    def test_post_formal_diagnose_requires_marker_and_creates_new_comment(self) -> None:
         client = mock.Mock()
         body = "<!-- wf:formal-diagnose -->\n## Phase-2A Formal Diagnose"
 
         post_formal_diagnose(client, 20, body)
 
-        client.upsert_marker_comment.assert_called_once_with(
+        client.create_marker_comment.assert_called_once_with(
             20,
             "<!-- wf:formal-diagnose -->",
             body,
@@ -72,7 +72,7 @@ class FormalSubloopTests(unittest.TestCase):
         with self.assertRaisesRegex(WorkflowError, "wf:formal-diagnose"):
             post_formal_diagnose(client, 20, "## Phase-2A Formal Diagnose")
 
-        client.upsert_marker_comment.assert_not_called()
+        client.create_marker_comment.assert_not_called()
 
     def test_approve_latest_formal_plan_uses_latest_review_plan_title(self) -> None:
         client = mock.Mock()
@@ -88,14 +88,22 @@ class FormalSubloopTests(unittest.TestCase):
                 "2026-04-18T10:05:00Z",
             ),
         ]
+        client.list_issue_comments.return_value[0]["id"] = 101
+        client.list_issue_comments.return_value[0]["html_url"] = "https://example.invalid/comment/101"
+        client.list_issue_comments.return_value[1]["id"] = 202
+        client.list_issue_comments.return_value[1]["html_url"] = "https://example.invalid/comment/202"
 
         approve_latest_formal_plan(client, 20)
 
-        client.upsert_marker_comment.assert_called_once()
-        args = client.upsert_marker_comment.call_args.args
+        client.create_marker_comment.assert_called_once()
+        args = client.create_marker_comment.call_args.args
         self.assertEqual(args[0], 20)
         self.assertEqual(args[1], "<!-- wf:formal-approval -->")
         self.assertIn("Narrow proof to one compare point", args[2])
+        self.assertIn("Approved Review-Plan Comment ID", args[2])
+        self.assertIn("202", args[2])
+        self.assertIn("Approved Review-Plan Comment URL", args[2])
+        self.assertIn("https://example.invalid/comment/202", args[2])
         self.assertIn("<!-- wf:formal-approval -->", args[2])
 
     def test_approve_latest_formal_plan_requires_latest_review_plan(self) -> None:

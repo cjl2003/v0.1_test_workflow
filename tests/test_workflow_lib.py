@@ -8,6 +8,8 @@ from tools.command_router import evaluate_command
 from tools.frontend_review import normalize_review_payload
 from tools.request_planner import normalize_planner_payload
 from tools.workflow_lib import (
+    GitHubClient,
+    GitHubConfig,
     MARKER_BACKEND_REVIEW,
     MARKER_BACKEND_RUN,
     MARKER_FORMAL_APPROVAL,
@@ -296,6 +298,54 @@ class OpenAIResponseDiagnosticsTests(unittest.TestCase):
         self.assertIn("HTTP 200", str(error.exception))
         self.assertIn("text/html", str(error.exception))
         self.assertIn("<html>bad gateway</html>", str(error.exception))
+
+
+class GitHubClientCommentTests(unittest.TestCase):
+    def test_create_marker_comment_rejects_body_without_matching_marker(self) -> None:
+        client = GitHubClient(
+            GitHubConfig(
+                github_token="ghs_test",
+                github_repo="owner/repo",
+                github_api_base="https://api.github.com",
+                github_api_version="2022-11-28",
+            )
+        )
+        self.addCleanup(client.close)
+
+        with self.assertRaisesRegex(WorkflowError, "matching marker"):
+            client.create_marker_comment(20, "<!-- wf:formal-diagnose -->", "body without marker")
+
+    def test_create_marker_comment_posts_new_comment(self) -> None:
+        client = GitHubClient(
+            GitHubConfig(
+                github_token="ghs_test",
+                github_repo="owner/repo",
+                github_api_base="https://api.github.com",
+                github_api_version="2022-11-28",
+            )
+        )
+        self.addCleanup(client.close)
+        client.session = mock.Mock()
+        response = mock.Mock()
+        response.json.return_value = {"html_url": "https://example.invalid/comment/1"}
+        response.raise_for_status.return_value = None
+        client.session.request.return_value = response
+
+        url = client.create_marker_comment(
+            20,
+            "<!-- wf:formal-diagnose -->",
+            "<!-- wf:formal-diagnose -->\nbody",
+        )
+
+        self.assertEqual(url, "https://example.invalid/comment/1")
+        client.session.request.assert_called_once()
+        kwargs = client.session.request.call_args.kwargs
+        self.assertEqual(kwargs["method"], "POST")
+        self.assertEqual(
+            kwargs["url"],
+            "https://api.github.com/repos/owner/repo/issues/20/comments",
+        )
+        self.assertEqual(kwargs["json"], {"body": "<!-- wf:formal-diagnose -->\nbody"})
 
 
 class WorkflowFilesTests(unittest.TestCase):
