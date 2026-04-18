@@ -51,14 +51,20 @@ def render_formal_diagnose_comment(
     candidate_next_steps: list[str],
     current_leaning: str,
 ) -> str:
+    cleaned_backend_run_id = _require_non_empty(backend_run_id, "backend_run_id")
+    cleaned_commit_ref = _require_non_empty(commit_ref, "commit_ref")
+    cleaned_formal_status = _require_non_empty(formal_status, "formal_status")
+    cleaned_current_stop_point = _require_non_empty(
+        current_stop_point, "current_stop_point"
+    )
     cleaned_compare_points = _clean_items(affected_compare_points)
     cleaned_attempts = _clean_attempts(attempts)
     cleaned_evidence_paths = _clean_items(evidence_paths)
     context_lines = [
         f"PR: `{pr_number}`",
-        f"Backend Run ID: `{backend_run_id}`",
-        f"Commit / Ref: `{commit_ref}`",
-        f"Formal Status: `{formal_status}`",
+        f"Backend Run ID: `{cleaned_backend_run_id}`",
+        f"Commit / Ref: `{cleaned_commit_ref}`",
+        f"Formal Status: `{cleaned_formal_status}`",
         "Affected Compare Point(s): "
         + (", ".join(f"`{item}`" for item in cleaned_compare_points) or "_None_"),
     ]
@@ -76,7 +82,7 @@ def render_formal_diagnose_comment(
         [],
         [
             ("Context", context_lines),
-            ("Current Stop Point", current_stop_point),
+            ("Current Stop Point", cleaned_current_stop_point),
             (
                 "What Was Tried",
                 [f"{name}: {result}" for name, result in cleaned_attempts] or ["None."],
@@ -140,7 +146,7 @@ def render_formal_review_plan_comment(
 
 
 def render_formal_approval_comment(plan_title: str) -> str:
-    approved_title = str(plan_title).strip() or "(untitled)"
+    approved_title = _require_non_empty(plan_title, "plan_title")
     return render_marked_comment(
         MARKER_FORMAL_APPROVAL,
         "Phase-2A Formal Approval",
