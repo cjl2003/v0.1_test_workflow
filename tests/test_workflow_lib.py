@@ -322,6 +322,19 @@ class WorkflowFilesTests(unittest.TestCase):
             content = workflow_file.read_text(encoding="utf-8")
             self.assertIn("ref: refs/heads/${{ github.event.repository.default_branch }}", content)
 
+    def test_request_plan_workflow_pull_request_trigger_is_limited_to_request_docs(
+        self,
+    ) -> None:
+        workflow = (
+            Path(__file__).resolve().parents[1]
+            / ".github"
+            / "workflows"
+            / "request-plan.yml"
+        ).read_text(encoding="utf-8")
+
+        self.assertIn("paths:", workflow)
+        self.assertIn("- docs/requests/**/*.md", workflow)
+
     def test_formal_review_plan_workflow_uses_kuaipao_secret_and_default_branch_checkout(
         self,
     ) -> None:
