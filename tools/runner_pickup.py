@@ -18,6 +18,7 @@ from tools.backend_runner import (
     BackendCandidate,
     build_backend_candidate,
     execute_backend_candidate,
+    handle_stale_or_interrupted_backend_jobs,
 )
 from tools.workflow_lib import (
     GitHubConfig,
@@ -806,9 +807,10 @@ def main() -> int:
     client = load_local_github_client()
     try:
         handle_stale_or_interrupted_jobs(client)
+        handle_stale_or_interrupted_backend_jobs(client)
         candidate = select_next_candidate(client, target_pr_number=args.pr_number)
         if candidate is None:
-            print("No eligible wf:codex-queued PR was found.")
+            print("No eligible wf:codex-queued or wf:backend-queued PR was found.")
             return 0
 
         dispatch_candidate(client, candidate)

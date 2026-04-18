@@ -31,6 +31,7 @@ from tools.workflow_lib import (
 REPO_ROOT = Path(__file__).resolve().parents[1]
 SSH_INFO_PATH = Path.home() / ".codex" / "secrets" / "huada_ssh.txt"
 LOCAL_STATE_ROOT = Path.home() / ".codex-phase2a-runner"
+LOCK_PATH = LOCAL_STATE_ROOT / "runner.lock"
 WORKTREE_ROOT = LOCAL_STATE_ROOT / "worktrees"
 LOG_ROOT = LOCAL_STATE_ROOT / "logs"
 
@@ -109,10 +110,60 @@ def build_phase2a_prompt(request_doc: str, run_id: str) -> str:
         "Use the Huada remote skill chain to locate the correct synthesis and Formal EC tools.\n"
         "Save the Windows master package under C:\\Users\\lalala\\.codex\\backend_runs\\ using the request id and run id.\n"
         "Write the slim repository artifact set under docs/runs/<request_id>/backend/<run_id>/.\n"
+        "Write exactly these local package files: summary.md, manifest.json, mapped.v, logs/synthesis.log, logs/formal_ec.log.\n"
+        "Write exactly these repository files: summary.md, manifest.json, reports/synthesis_power.rpt, reports/synthesis_area.rpt, reports/synthesis_timing_summary.rpt, reports/constraint_summary.md, reports/formal_ec_summary.md.\n"
         "Do not run place and route, signoff STA, LVS, SPEF, or any optimization loop.\n\n"
+        "Do not modify RTL, testbench, request docs, or source files.\n"
+        "Do not commit, tag, or push.\n\n"
         f"## Run Id\n{run_id}\n\n"
         f"## Request Document\n{request_doc.strip()}\n"
     )
+
+
+def pid_is_running(pid: int) -> bool:
+    """Check whether a process id is still alive on the local machine."""
+    try:
+        import os
+
+        os.kill(pid, 0)
+    except OSError:
+        return False
+    return True
+
+
+def read_lock_data() -> dict[str, Any] | None:
+    """Read the local backend runner lock file when it exists."""
+    if not LOCK_PATH.exists():
+        return None
+    import json
+
+    return json.loads(LOCK_PATH.read_text(encoding="utf-8"))
+
+
+def write_lock_data(pr_number: int, run_id: str, worktree_path: Path) -> None:
+    """Persist the single-runner backend lock."""
+    import json
+    import os
+
+    LOCK_PATH.write_text(
+        json.dumps(
+            {
+                "pid": os.getpid(),
+                "pr_number": pr_number,
+                "run_id": run_id,
+                "worktree_path": str(worktree_path),
+                "started_at": datetime.now(timezone.utc).isoformat(),
+            },
+            indent=2,
+        ),
+        encoding="utf-8",
+    )
+
+
+def clear_lock_data() -> None:
+    """Remove the local backend runner lock file when present."""
+    if LOCK_PATH.exists():
+        LOCK_PATH.unlink()
 
 
 def run_git(args: list[str], cwd: Path = REPO_ROOT) -> str:
@@ -294,9 +345,14 @@ def load_phase2a_baseline_metrics(repo_dir: Path) -> dict[str, str]:
     }
 
 
-def commit_and_tag_success(worktree_path: Path, run_id: str, tag: str) -> str:
+def commit_and_tag_success(
+    worktree_path: Path,
+    repo_artifact_dir: Path,
+    run_id: str,
+    tag: str,
+) -> str:
     """Create the backend success commit and annotated tag."""
-    run_git(["add", "-A"], cwd=worktree_path)
+    run_git(["add", "--", repo_artifact_dir.as_posix()], cwd=worktree_path)
     run_git(
         ["commit", "-m", f"feat: publish phase2a backend run {run_id}"],
         cwd=worktree_path,
@@ -339,6 +395,60 @@ def mark_backend_failed_run(
     )
     client.upsert_marker_comment(pr_number, MARKER_BACKEND_RUN, body)
     client.set_primary_state(pr_number, "wf:backend-failed")
+
+
+def handle_stale_or_interrupted_backend_jobs(client: Any) -> None:
+    """Fail interrupted backend jobs left behind from a previous runner crash."""
+    lock_data = read_lock_data()
+    if lock_data is not None:
+        pid = int(lock_data.get("pid", 0))
+        if pid and pid_is_running(pid):
+            raise WorkflowError(
+                f"Another local backend runner job is active for PR #{lock_data.get('pr_number')}."
+            )
+
+        clear_lock_data()
+        pr_number = int(lock_data.get("pr_number", 0) or 0)
+        if pr_number:
+            pr = client.get_pull_request(pr_number)
+            current_state = extract_primary_state(
+                [
+                    str(label.get("name", "")).strip()
+                    for label in pr.get("labels", [])
+                    if isinstance(label, dict)
+                ]
+            )
+            if current_state == "wf:backend-running":
+                mark_backend_failed_run(
+                    client,
+                    pr_number=pr_number,
+                    run_id=str(lock_data.get("run_id", "interrupted-backend-run")),
+                    local_package_dir="unknown",
+                    repo_artifact_dir="unknown",
+                    notes=(
+                        "The previous local backend runner job was interrupted. "
+                        "Worktree and logs are preserved on the Windows host."
+                    ),
+                )
+
+    for pr in client.list_open_pull_requests():
+        current_state = extract_primary_state(
+            [
+                str(label.get("name", "")).strip()
+                for label in pr.get("labels", [])
+                if isinstance(label, dict)
+            ]
+        )
+        if current_state != "wf:backend-running":
+            continue
+        mark_backend_failed_run(
+            client,
+            pr_number=int(pr["number"]),
+            run_id=f"interrupted-backend-pr-{pr['number']}",
+            local_package_dir="unknown",
+            repo_artifact_dir="unknown",
+            notes="The next runner cycle marked this interrupted phase-2A job as failed.",
+        )
 
 
 def execute_backend_candidate(client: Any, candidate: BackendCandidate) -> None:
@@ -395,6 +505,7 @@ def execute_backend_candidate(client: Any, candidate: BackendCandidate) -> None:
                 log_dir.rename(desired_log_dir)
             log_dir = desired_log_dir
             log_dir.mkdir(parents=True, exist_ok=True)
+        write_lock_data(candidate.pr_number, run_id, worktree_path)
 
         local_dir = build_phase2a_local_dir(request_id, run_id)
         local_dir.mkdir(parents=True, exist_ok=True)
@@ -417,7 +528,7 @@ def execute_backend_candidate(client: Any, candidate: BackendCandidate) -> None:
             )
 
         baseline_metrics = load_phase2a_baseline_metrics(repo_dir)
-        commit_id = commit_and_tag_success(worktree_path, run_id, tag)
+        commit_id = commit_and_tag_success(worktree_path, repo_dir_relative, run_id, tag)
         client.set_primary_state(candidate.pr_number, "wf:awaiting-backend-review")
         push_success_result(worktree_path, candidate.head_branch, tag)
 
@@ -452,3 +563,5 @@ def execute_backend_candidate(client: Any, candidate: BackendCandidate) -> None:
             notes=notes,
         )
         raise
+    finally:
+        clear_lock_data()
