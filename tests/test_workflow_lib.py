@@ -10,6 +10,9 @@ from tools.request_planner import normalize_planner_payload
 from tools.workflow_lib import (
     MARKER_BACKEND_REVIEW,
     MARKER_BACKEND_RUN,
+    MARKER_FORMAL_APPROVAL,
+    MARKER_FORMAL_DIAGNOSE,
+    MARKER_FORMAL_REVIEW_PLAN,
     OpenAIConfig,
     PRIMARY_LABELS,
     WorkflowError,
@@ -64,6 +67,11 @@ class WorkflowLabelTests(unittest.TestCase):
     def test_phase2a_marker_constants_are_stable(self) -> None:
         self.assertEqual(MARKER_BACKEND_RUN, "<!-- wf:backend-run -->")
         self.assertEqual(MARKER_BACKEND_REVIEW, "<!-- wf:backend-review -->")
+
+    def test_formal_marker_constants_are_stable(self) -> None:
+        self.assertEqual(MARKER_FORMAL_DIAGNOSE, "<!-- wf:formal-diagnose -->")
+        self.assertEqual(MARKER_FORMAL_REVIEW_PLAN, "<!-- wf:formal-review-plan -->")
+        self.assertEqual(MARKER_FORMAL_APPROVAL, "<!-- wf:formal-approval -->")
 
     def test_find_latest_marker_comment_prefers_updated_timestamp(self) -> None:
         comments = [
