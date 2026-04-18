@@ -87,11 +87,50 @@ class FormalProtocolRenderTests(unittest.TestCase):
         self.assertNotIn("- `  `", rendered)
         self.assertNotIn("-    : ignored", rendered)
 
+    def test_render_formal_diagnose_comment_handles_none_items_and_current_leaning(self) -> None:
+        rendered = render_formal_diagnose_comment(
+            pr_number=20,
+            backend_run_id="phase2a-20260418_104642-r001",
+            commit_ref="0a5836659d7f8c647862b9eb7f87eb5c0e4cb40d",
+            formal_status="undet",
+            affected_compare_points=[None, "miter_mode0_prev_product_28__IQ"],
+            current_stop_point="Single compare point remains undetermined after targeted runs.",
+            attempts=[(None, "ignored"), ("target4 prove", None), ("valid", "kept")],
+            strongest_evidence=["PO-only prove shows top-level outputs trivially true."],
+            evidence_paths=[None, "work_pre_mode0p28_long/pre_mode0p28_long.out.log.log"],
+            ruled_out=["Missing reset definition is no longer the main blocker."],
+            candidate_next_steps=["Strengthen proof around mode0_prev_product_28 only."],
+            current_leaning=None,
+        )
+
+        self.assertIn("miter_mode0_prev_product_28__IQ", rendered)
+        self.assertIn("work_pre_mode0p28_long/pre_mode0p28_long.out.log.log", rendered)
+        self.assertIn("valid: kept", rendered)
+        self.assertNotIn("ignored", rendered)
+        self.assertNotIn("None", rendered)
+
     def test_render_formal_diagnose_comment_rejects_blank_required_scalars(self) -> None:
         with self.assertRaisesRegex(WorkflowError, "backend_run_id"):
             render_formal_diagnose_comment(
                 pr_number=20,
                 backend_run_id="  ",
+                commit_ref="0a5836659d7f8c647862b9eb7f87eb5c0e4cb40d",
+                formal_status="undet",
+                affected_compare_points=["miter_mode0_prev_product_28__IQ"],
+                current_stop_point="Single compare point remains undetermined after targeted runs.",
+                attempts=[("target4 prove", "3 pass, 1 undet")],
+                strongest_evidence=["PO-only prove shows top-level outputs trivially true."],
+                evidence_paths=["work_pre_mode0p28_long/pre_mode0p28_long.out.log.log"],
+                ruled_out=["Missing reset definition is no longer the main blocker."],
+                candidate_next_steps=["Strengthen proof around mode0_prev_product_28 only."],
+                current_leaning="Strengthen the single compare-point proof first.",
+            )
+
+    def test_render_formal_diagnose_comment_rejects_none_required_scalar(self) -> None:
+        with self.assertRaisesRegex(WorkflowError, "backend_run_id"):
+            render_formal_diagnose_comment(
+                pr_number=20,
+                backend_run_id=None,
                 commit_ref="0a5836659d7f8c647862b9eb7f87eb5c0e4cb40d",
                 formal_status="undet",
                 affected_compare_points=["miter_mode0_prev_product_28__IQ"],
@@ -175,6 +214,10 @@ class FormalProtocolRenderTests(unittest.TestCase):
     def test_render_formal_approval_comment_rejects_blank_plan_title(self) -> None:
         with self.assertRaisesRegex(WorkflowError, "plan_title"):
             render_formal_approval_comment("   ")
+
+    def test_render_formal_approval_comment_rejects_none_plan_title(self) -> None:
+        with self.assertRaisesRegex(WorkflowError, "plan_title"):
+            render_formal_approval_comment(None)
 
 
 if __name__ == "__main__":

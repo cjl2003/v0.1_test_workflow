@@ -15,12 +15,21 @@ from tools.workflow_lib import (
 
 
 def _clean_items(items: Iterable[str]) -> list[str]:
-    return [str(item).strip() for item in items if str(item).strip()]
+    cleaned: list[str] = []
+    for item in items:
+        if item is None:
+            continue
+        value = str(item).strip()
+        if value:
+            cleaned.append(value)
+    return cleaned
 
 
 def _clean_attempts(items: Iterable[tuple[str, str]]) -> list[tuple[str, str]]:
     cleaned: list[tuple[str, str]] = []
     for name, result in items:
+        if name is None or result is None:
+            continue
         cleaned_name = str(name).strip()
         cleaned_result = str(result).strip()
         if not cleaned_name or not cleaned_result:
@@ -30,6 +39,8 @@ def _clean_attempts(items: Iterable[tuple[str, str]]) -> list[tuple[str, str]]:
 
 
 def _require_non_empty(value: str, field_name: str) -> str:
+    if value is None:
+        raise WorkflowError(f"Formal review-plan field {field_name} must be non-empty.")
     cleaned = str(value).strip()
     if not cleaned:
         raise WorkflowError(f"Formal review-plan field {field_name} must be non-empty.")
@@ -57,6 +68,9 @@ def render_formal_diagnose_comment(
     cleaned_current_stop_point = _require_non_empty(
         current_stop_point, "current_stop_point"
     )
+    cleaned_current_leaning = ""
+    if current_leaning is not None:
+        cleaned_current_leaning = str(current_leaning).strip()
     cleaned_compare_points = _clean_items(affected_compare_points)
     cleaned_attempts = _clean_attempts(attempts)
     cleaned_evidence_paths = _clean_items(evidence_paths)
@@ -69,8 +83,8 @@ def render_formal_diagnose_comment(
         + (", ".join(f"`{item}`" for item in cleaned_compare_points) or "_None_"),
     ]
     next_step_lines = _clean_items(candidate_next_steps)
-    if current_leaning.strip():
-        next_step_lines.append(f"Current Leaning: {current_leaning.strip()}")
+    if cleaned_current_leaning:
+        next_step_lines.append(f"Current Leaning: {cleaned_current_leaning}")
     questions = [
         "What is the single best next formal step?",
         "What evidence should be gathered or tightened next?",
