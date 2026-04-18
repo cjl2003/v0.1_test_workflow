@@ -1,16 +1,22 @@
 import unittest
 from pathlib import Path
+from unittest.mock import Mock, patch
 
 from tools.command_router import evaluate_command
 from tools.frontend_review import normalize_review_payload
 from tools.request_planner import normalize_planner_payload
 from tools.workflow_lib import (
+    OpenAIConfig,
     PRIMARY_LABELS,
     MARKER_FORMAL_APPROVAL,
     MARKER_FORMAL_DIAGNOSE,
     MARKER_FORMAL_REVIEW_PLAN,
+    WorkflowError,
+    call_openai_text,
     build_primary_label_set,
+    extract_anthropic_text,
     find_latest_marker_comment,
+    normalize_anthropic_messages_url,
 )
 
 
@@ -164,6 +170,68 @@ class PlannerPayloadTests(unittest.TestCase):
         self.assertEqual(normalized.marker, "<!-- wf:clarification -->")
         self.assertEqual(normalized.target_state, "wf:needs-clarification")
         self.assertIn("Blocking Reason", normalized.body)
+
+
+class AnthropicWorkflowTests(unittest.TestCase):
+    def test_normalize_anthropic_messages_url_appends_messages_endpoint(self) -> None:
+        self.assertEqual(
+            normalize_anthropic_messages_url("https://kuaipao.ai"),
+            "https://kuaipao.ai/v1/messages",
+        )
+
+    def test_normalize_anthropic_messages_url_replaces_trailing_v1_path(self) -> None:
+        self.assertEqual(
+            normalize_anthropic_messages_url("https://kuaipao.ai/v1/"),
+            "https://kuaipao.ai/v1/messages",
+        )
+
+    def test_extract_anthropic_text_joins_multiple_text_blocks(self) -> None:
+        payload = {
+            "content": [
+                {"type": "text", "text": "first"},
+                {"type": "text", "text": "second"},
+            ]
+        }
+
+        self.assertEqual(extract_anthropic_text(payload), "first\n\nsecond")
+
+    def test_extract_anthropic_text_raises_when_no_text_blocks_exist(self) -> None:
+        with self.assertRaises(WorkflowError):
+            extract_anthropic_text({"content": [{"type": "tool_use"}]})
+
+    @patch("tools.workflow_lib.requests.post")
+    def test_call_openai_text_uses_anthropic_messages_endpoint(self, mock_post: Mock) -> None:
+        mock_response = Mock()
+        mock_response.json.return_value = {"id": "msg_123", "content": []}
+        mock_response.status_code = 200
+        mock_post.return_value = mock_response
+
+        config = OpenAIConfig(
+            openai_api_key="sk-test",
+            openai_api_base="https://kuaipao.ai",
+            openai_model="claude-opus-4-7",
+            openai_endpoint_style="anthropic_messages",
+            openai_reasoning_effort="medium",
+            max_output_tokens=1800,
+        )
+
+        text, response_id = call_openai_text(config, "system text", "user text")
+
+        self.assertEqual(text, "ok")
+        self.assertEqual(response_id, "msg_123")
+        mock_post.assert_called_once()
+        self.assertEqual(
+            mock_post.call_args.args[0],
+            "https://kuaipao.ai/v1/messages",
+        )
+        self.assertEqual(
+            mock_post.call_args.kwargs["headers"]["x-api-key"],
+            "sk-test",
+        )
+        self.assertEqual(
+            mock_post.call_args.kwargs["headers"]["anthropic-version"],
+            "2023-06-01",
+        )
 
 
 class FrontendReviewPayloadTests(unittest.TestCase):
