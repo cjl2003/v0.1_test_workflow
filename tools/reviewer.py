@@ -18,11 +18,22 @@ from typing import Any
 
 import requests
 from dotenv import load_dotenv
-from tools.workflow_lib import (
-    OpenAIConfig,
-    WorkflowError,
-    call_openai_text as shared_call_openai_text,
-)
+
+try:
+    from tools.workflow_lib import (
+        OpenAIConfig,
+        WorkflowError,
+        call_openai_text as shared_call_openai_text,
+    )
+except ModuleNotFoundError as error:
+    if error.name != "tools":
+        raise
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+    from tools.workflow_lib import (
+        OpenAIConfig,
+        WorkflowError,
+        call_openai_text as shared_call_openai_text,
+    )
 
 
 REVIEW_COMMENT_MARKER = "<!-- rtl-auto-review -->"

@@ -1,7 +1,10 @@
 import argparse
 import os
+import subprocess
+import sys
 import unittest
 from unittest import mock
+from pathlib import Path
 
 from tools import workflow_lib
 from tools.reviewer import (
@@ -153,6 +156,22 @@ class ReviewerSharedClientTests(unittest.TestCase):
             call_openai_review(config, "rules", "diff")
 
         self.assertIn("shared failure", str(error.exception))
+
+
+class ReviewerScriptModeTests(unittest.TestCase):
+    def test_reviewer_script_runs_in_file_mode(self) -> None:
+        repo_root = Path(__file__).resolve().parents[1]
+        script_path = repo_root / "tools" / "reviewer.py"
+
+        result = subprocess.run(
+            [sys.executable, str(script_path), "--help"],
+            cwd=repo_root,
+            capture_output=True,
+            text=True,
+        )
+
+        self.assertEqual(result.returncode, 0, msg=result.stderr)
+        self.assertIn("Fetch a PR diff", result.stdout)
 
 
 if __name__ == "__main__":
