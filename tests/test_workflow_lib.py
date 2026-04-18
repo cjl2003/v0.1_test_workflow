@@ -5,19 +5,7 @@ from unittest.mock import Mock, patch
 from tools.command_router import evaluate_command
 from tools.frontend_review import normalize_review_payload
 from tools.request_planner import normalize_planner_payload
-from tools.workflow_lib import (
-    OpenAIConfig,
-    PRIMARY_LABELS,
-    MARKER_FORMAL_APPROVAL,
-    MARKER_FORMAL_DIAGNOSE,
-    MARKER_FORMAL_REVIEW_PLAN,
-    WorkflowError,
-    call_openai_text,
-    build_primary_label_set,
-    extract_anthropic_text,
-    find_latest_marker_comment,
-    normalize_anthropic_messages_url,
-)
+import tools.workflow_lib as workflow_lib
 
 
 def make_comment(body: str, created_at: str, updated_at: str | None = None) -> dict:
@@ -32,7 +20,7 @@ class WorkflowLabelTests(unittest.TestCase):
     def test_build_primary_label_set_replaces_existing_primary_label(self) -> None:
         labels = ["bug", "wf:intake", "docs"]
 
-        updated = build_primary_label_set(labels, "wf:codex-queued")
+        updated = workflow_lib.build_primary_label_set(labels, "wf:codex-queued")
 
         self.assertEqual(
             updated,
@@ -41,7 +29,7 @@ class WorkflowLabelTests(unittest.TestCase):
 
     def test_primary_labels_constant_contains_phase1_states(self) -> None:
         self.assertEqual(
-            PRIMARY_LABELS,
+            workflow_lib.PRIMARY_LABELS,
             (
                 "wf:intake",
                 "wf:needs-clarification",
@@ -56,9 +44,15 @@ class WorkflowLabelTests(unittest.TestCase):
         )
 
     def test_formal_marker_constants_are_stable(self) -> None:
-        self.assertEqual(MARKER_FORMAL_DIAGNOSE, "<!-- wf:formal-diagnose -->")
-        self.assertEqual(MARKER_FORMAL_REVIEW_PLAN, "<!-- wf:formal-review-plan -->")
-        self.assertEqual(MARKER_FORMAL_APPROVAL, "<!-- wf:formal-approval -->")
+        self.assertEqual(
+            workflow_lib.MARKER_FORMAL_DIAGNOSE, "<!-- wf:formal-diagnose -->"
+        )
+        self.assertEqual(
+            workflow_lib.MARKER_FORMAL_REVIEW_PLAN, "<!-- wf:formal-review-plan -->"
+        )
+        self.assertEqual(
+            workflow_lib.MARKER_FORMAL_APPROVAL, "<!-- wf:formal-approval -->"
+        )
 
     def test_find_latest_marker_comment_prefers_updated_timestamp(self) -> None:
         comments = [
@@ -74,7 +68,7 @@ class WorkflowLabelTests(unittest.TestCase):
             ),
         ]
 
-        latest = find_latest_marker_comment(comments, "<!-- wf:plan -->")
+        latest = workflow_lib.find_latest_marker_comment(comments, "<!-- wf:plan -->")
 
         self.assertIsNotNone(latest)
         self.assertIn("new plan", latest["body"])
@@ -175,13 +169,13 @@ class PlannerPayloadTests(unittest.TestCase):
 class AnthropicWorkflowTests(unittest.TestCase):
     def test_normalize_anthropic_messages_url_appends_messages_endpoint(self) -> None:
         self.assertEqual(
-            normalize_anthropic_messages_url("https://kuaipao.ai"),
+            workflow_lib.normalize_anthropic_messages_url("https://kuaipao.ai"),
             "https://kuaipao.ai/v1/messages",
         )
 
     def test_normalize_anthropic_messages_url_replaces_trailing_v1_path(self) -> None:
         self.assertEqual(
-            normalize_anthropic_messages_url("https://kuaipao.ai/v1/"),
+            workflow_lib.normalize_anthropic_messages_url("https://kuaipao.ai/v1/"),
             "https://kuaipao.ai/v1/messages",
         )
 
@@ -193,11 +187,11 @@ class AnthropicWorkflowTests(unittest.TestCase):
             ]
         }
 
-        self.assertEqual(extract_anthropic_text(payload), "first\n\nsecond")
+        self.assertEqual(workflow_lib.extract_anthropic_text(payload), "first\n\nsecond")
 
     def test_extract_anthropic_text_raises_when_no_text_blocks_exist(self) -> None:
-        with self.assertRaises(WorkflowError):
-            extract_anthropic_text({"content": [{"type": "tool_use"}]})
+        with self.assertRaises(workflow_lib.WorkflowError):
+            workflow_lib.extract_anthropic_text({"content": [{"type": "tool_use"}]})
 
     @patch("tools.workflow_lib.requests.post")
     def test_call_openai_text_uses_anthropic_messages_endpoint(self, mock_post: Mock) -> None:
@@ -209,7 +203,7 @@ class AnthropicWorkflowTests(unittest.TestCase):
         mock_response.status_code = 200
         mock_post.return_value = mock_response
 
-        config = OpenAIConfig(
+        config = workflow_lib.OpenAIConfig(
             openai_api_key="sk-test",
             openai_api_base="https://kuaipao.ai",
             openai_model="claude-opus-4-7",
@@ -218,7 +212,9 @@ class AnthropicWorkflowTests(unittest.TestCase):
             max_output_tokens=1800,
         )
 
-        text, response_id = call_openai_text(config, "system text", "user text")
+        text, response_id = workflow_lib.call_openai_text(
+            config, "system text", "user text"
+        )
 
         self.assertEqual(text, "ok")
         self.assertEqual(response_id, "msg_123")
@@ -227,6 +223,15 @@ class AnthropicWorkflowTests(unittest.TestCase):
             mock_post.call_args.args[0],
             "https://kuaipao.ai/v1/messages",
         )
+        self.assertEqual(
+            mock_post.call_args.kwargs["json"]["system"],
+            "system text",
+        )
+        self.assertEqual(
+            mock_post.call_args.kwargs["json"]["messages"],
+            [{"role": "user", "content": "user text"}],
+        )
+        self.assertEqual(mock_post.call_args.kwargs["json"]["max_tokens"], 1800)
         self.assertEqual(
             mock_post.call_args.kwargs["headers"]["x-api-key"],
             "sk-test",
