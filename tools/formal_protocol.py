@@ -9,12 +9,31 @@ from tools.workflow_lib import (
     MARKER_FORMAL_APPROVAL,
     MARKER_FORMAL_DIAGNOSE,
     MARKER_FORMAL_REVIEW_PLAN,
+    WorkflowError,
     render_marked_comment,
 )
 
 
 def _clean_items(items: Iterable[str]) -> list[str]:
     return [str(item).strip() for item in items if str(item).strip()]
+
+
+def _clean_attempts(items: Iterable[tuple[str, str]]) -> list[tuple[str, str]]:
+    cleaned: list[tuple[str, str]] = []
+    for name, result in items:
+        cleaned_name = str(name).strip()
+        cleaned_result = str(result).strip()
+        if not cleaned_name or not cleaned_result:
+            continue
+        cleaned.append((cleaned_name, cleaned_result))
+    return cleaned
+
+
+def _require_non_empty(value: str, field_name: str) -> str:
+    cleaned = str(value).strip()
+    if not cleaned:
+        raise WorkflowError(f"Formal review-plan field {field_name} must be non-empty.")
+    return cleaned
 
 
 def render_formal_diagnose_comment(
@@ -32,13 +51,16 @@ def render_formal_diagnose_comment(
     candidate_next_steps: list[str],
     current_leaning: str,
 ) -> str:
+    cleaned_compare_points = _clean_items(affected_compare_points)
+    cleaned_attempts = _clean_attempts(attempts)
+    cleaned_evidence_paths = _clean_items(evidence_paths)
     context_lines = [
         f"PR: `{pr_number}`",
         f"Backend Run ID: `{backend_run_id}`",
         f"Commit / Ref: `{commit_ref}`",
         f"Formal Status: `{formal_status}`",
         "Affected Compare Point(s): "
-        + (", ".join(f"`{item}`" for item in affected_compare_points) or "_None_"),
+        + (", ".join(f"`{item}`" for item in cleaned_compare_points) or "_None_"),
     ]
     next_step_lines = _clean_items(candidate_next_steps)
     if current_leaning.strip():
@@ -57,10 +79,10 @@ def render_formal_diagnose_comment(
             ("Current Stop Point", current_stop_point),
             (
                 "What Was Tried",
-                [f"{name}: {result}" for name, result in attempts] or ["None."],
+                [f"{name}: {result}" for name, result in cleaned_attempts] or ["None."],
             ),
             ("Strongest Evidence", _clean_items(strongest_evidence)),
-            ("Key Logs / Paths", [f"`{item}`" for item in evidence_paths]),
+            ("Key Logs / Paths", [f"`{item}`" for item in cleaned_evidence_paths]),
             ("Ruled Out", _clean_items(ruled_out)),
             ("Candidate Next Step", next_step_lines or ["None."]),
             ("Questions For GPT", questions),
@@ -80,24 +102,39 @@ def render_formal_review_plan_comment(
     success_criteria: str,
     do_not_do: list[str],
 ) -> str:
+    normalized_decision = str(decision).strip().lower()
+    if normalized_decision not in {"approve", "reject", "revise"}:
+        raise WorkflowError(
+            "Formal review-plan decision must be one of: approve, reject, revise."
+        )
+
+    cleaned_reasons = _clean_items(reasons)
+    cleaned_plan_title = _require_non_empty(plan_title, "plan_title")
+    cleaned_hypothesis = _require_non_empty(hypothesis, "hypothesis")
+    cleaned_one_experiment = _require_non_empty(one_experiment, "one_experiment")
+    cleaned_expected_evidence = _require_non_empty(expected_evidence, "expected_evidence")
+    cleaned_stop_condition = _require_non_empty(stop_condition, "stop_condition")
+    cleaned_success_criteria = _require_non_empty(success_criteria, "success_criteria")
+    cleaned_do_not_do = _clean_items(do_not_do)
+
     return render_marked_comment(
         MARKER_FORMAL_REVIEW_PLAN,
         "Phase-2A Formal Review Plan",
-        [("Decision", decision)],
+        [("Decision", normalized_decision)],
         [
-            ("Reason", _clean_items(reasons)),
+            ("Reason", cleaned_reasons),
             (
                 "Next Plan",
                 [
-                    f"Plan Title: {plan_title}",
-                    f"Hypothesis: {hypothesis}",
-                    f"One Experiment / One Fix Direction: {one_experiment}",
-                    f"Expected Evidence: {expected_evidence}",
-                    f"Stop Condition: {stop_condition}",
+                    f"Plan Title: {cleaned_plan_title}",
+                    f"Hypothesis: {cleaned_hypothesis}",
+                    f"One Experiment / One Fix Direction: {cleaned_one_experiment}",
+                    f"Expected Evidence: {cleaned_expected_evidence}",
+                    f"Stop Condition: {cleaned_stop_condition}",
                 ],
             ),
-            ("Success Criteria", success_criteria),
-            ("Do Not Do", _clean_items(do_not_do)),
+            ("Success Criteria", cleaned_success_criteria),
+            ("Do Not Do", cleaned_do_not_do),
         ],
     )
 
