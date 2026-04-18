@@ -8,50 +8,91 @@ from tools.formal_protocol import (
 
 
 class FormalProtocolRenderTests(unittest.TestCase):
-    def test_render_formal_diagnose_comment_includes_expected_sections(self) -> None:
+    def test_render_formal_diagnose_comment_uses_expected_contract(self) -> None:
         rendered = render_formal_diagnose_comment(
-            context="Latest synth run hit an unresolved timing failure.",
-            current_stop_point="The run stopped after the first failing report.",
-            what_was_tried=["Re-ran the same command.", "Checked the timing report."],
-            strongest_evidence=["`reports/timing.rpt` shows hold violations."],
-            key_logs_or_paths=["`logs/synth.log`", "`reports/timing.rpt`"],
-            ruled_out=["A missing input file."],
-            candidate_next_step="Inspect the failing path in the timing report.",
-            questions_for_gpt=["What is the most likely root cause?"],
+            pr_number=20,
+            backend_run_id="phase2a-20260418_104642-r001",
+            commit_ref="0a5836659d7f8c647862b9eb7f87eb5c0e4cb40d",
+            formal_status="undet",
+            affected_compare_points=["miter_mode0_prev_product_28__IQ"],
+            current_stop_point="Single compare point remains undetermined after targeted runs.",
+            attempts=[
+                ("target4 prove", "3 pass, 1 undet"),
+                ("single-point long run", "still undet after ~1190s"),
+            ],
+            strongest_evidence=[
+                "PO-only prove shows top-level outputs trivially true.",
+                "No output-related fail observed in observable cluster run.",
+            ],
+            evidence_paths=[
+                "work_pre_target4/pre_target4.out.log.log",
+                "work_pre_mode0p28_long/pre_mode0p28_long.out.log.log",
+            ],
+            ruled_out=["Missing reset definition is no longer the main blocker."],
+            candidate_next_steps=[
+                "Strengthen proof around mode0_prev_product_28 only.",
+                "Add one tighter observability experiment tied to mode0 output path.",
+            ],
+            current_leaning="Strengthen the single compare-point proof first.",
         )
 
         self.assertIn("<!-- wf:formal-diagnose -->", rendered)
         self.assertIn("### Context", rendered)
+        self.assertIn("PR: `20`", rendered)
+        self.assertIn("Backend Run ID: `phase2a-20260418_104642-r001`", rendered)
+        self.assertIn("Commit / Ref: `0a5836659d7f8c647862b9eb7f87eb5c0e4cb40d`", rendered)
+        self.assertIn("Formal Status: `undet`", rendered)
+        self.assertIn("miter_mode0_prev_product_28__IQ", rendered)
         self.assertIn("### Current Stop Point", rendered)
         self.assertIn("### What Was Tried", rendered)
+        self.assertIn("target4 prove: 3 pass, 1 undet", rendered)
+        self.assertIn("single-point long run: still undet after ~1190s", rendered)
         self.assertIn("### Strongest Evidence", rendered)
         self.assertIn("### Key Logs / Paths", rendered)
         self.assertIn("### Ruled Out", rendered)
         self.assertIn("### Candidate Next Step", rendered)
+        self.assertIn("Current Leaning: Strengthen the single compare-point proof first.", rendered)
         self.assertIn("### Questions For GPT", rendered)
 
-    def test_render_formal_review_plan_comment_includes_decision_metadata(self) -> None:
+    def test_render_formal_review_plan_comment_uses_actual_decision(self) -> None:
         rendered = render_formal_review_plan_comment(
-            reason="The latest evidence is sufficient to propose the next formal step.",
-            next_plan="Run the failing formal check with targeted assertions.",
-            success_criteria="The failure is reproduced with a minimal trace.",
-            do_not_do=["Do not change implementation code yet."],
+            decision="revise",
+            reasons=["Current diagnosis is directionally right but still too broad."],
+            plan_title="Narrow proof to one compare point",
+            hypothesis="The blocker is isolated to a single internal state point.",
+            one_experiment="Run one focused proof or observability experiment for that point only.",
+            expected_evidence="Either the point proves or a concrete counterexample appears.",
+            stop_condition="Stop after one targeted experiment.",
+            success_criteria="A narrower conclusion replaces the current broad undet cluster claim.",
+            do_not_do=["Do not expand back into broad cluster proves."],
         )
 
         self.assertIn("<!-- wf:formal-review-plan -->", rendered)
-        self.assertIn("- Decision: `formal-review-plan`", rendered)
+        self.assertIn("- Decision: `revise`", rendered)
         self.assertIn("### Reason", rendered)
+        self.assertIn("Current diagnosis is directionally right but still too broad.", rendered)
         self.assertIn("### Next Plan", rendered)
+        self.assertIn("Plan Title: Narrow proof to one compare point", rendered)
+        self.assertIn("Hypothesis: The blocker is isolated to a single internal state point.", rendered)
+        self.assertIn(
+            "One Experiment / One Fix Direction: Run one focused proof or observability experiment for that point only.",
+            rendered,
+        )
+        self.assertIn(
+            "Expected Evidence: Either the point proves or a concrete counterexample appears.",
+            rendered,
+        )
+        self.assertIn("Stop Condition: Stop after one targeted experiment.", rendered)
         self.assertIn("### Success Criteria", rendered)
         self.assertIn("### Do Not Do", rendered)
 
     def test_render_formal_approval_comment_mentions_plan_title_and_relay(self) -> None:
-        rendered = render_formal_approval_comment("Patch the failing timing arc only")
+        rendered = render_formal_approval_comment("Narrow proof to one compare point")
 
         self.assertIn("<!-- wf:formal-approval -->", rendered)
         self.assertIn("latest wf:formal-review-plan", rendered)
         self.assertIn("desktop user via Codex relay", rendered)
-        self.assertIn("Patch the failing timing arc only", rendered)
+        self.assertIn("Narrow proof to one compare point", rendered)
 
 
 if __name__ == "__main__":
