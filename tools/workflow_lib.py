@@ -58,6 +58,7 @@ DEFAULT_OPENAI_MODEL = "gpt-5.4"
 DEFAULT_OPENAI_ENDPOINT_STYLE = "auto"
 DEFAULT_OPENAI_REASONING_EFFORT = "medium"
 DEFAULT_OPENAI_MAX_OUTPUT_TOKENS = 1800
+ANTHROPIC_VERSION = "2023-06-01"
 REQUEST_TIMEOUT_SECONDS = 60
 
 
@@ -476,6 +477,16 @@ def should_fallback_to_chat_completions(error_message: str) -> bool:
     )
 
 
+def normalize_anthropic_messages_url(base_url: str) -> str:
+    """Normalize an Anthropic-compatible base URL to the messages endpoint."""
+    normalized = base_url.rstrip("/")
+    if normalized.endswith("/messages"):
+        return normalized
+    if normalized.endswith("/v1"):
+        return f"{normalized}/messages"
+    return f"{normalized}/v1/messages"
+
+
 def extract_openai_text(response_json: dict[str, Any]) -> str:
     """Aggregate all Responses API output text chunks from the raw payload."""
     parts: list[str] = []
@@ -493,6 +504,23 @@ def extract_openai_text(response_json: dict[str, Any]) -> str:
                 parts.append(text)
 
     return "\n\n".join(parts).strip()
+
+
+def extract_anthropic_text(response_json: dict[str, Any]) -> str:
+    """Aggregate text blocks from an Anthropic messages payload."""
+    parts: list[str] = []
+
+    for item in response_json.get("content", []):
+        if not isinstance(item, dict) or item.get("type") != "text":
+            continue
+        text = str(item.get("text", "")).strip()
+        if text:
+            parts.append(text)
+
+    text = "\n\n".join(parts).strip()
+    if not text:
+        raise WorkflowError("Anthropic messages API returned no text content.")
+    return text
 
 
 def extract_chat_completions_text(response_json: dict[str, Any]) -> str:
@@ -530,9 +558,11 @@ def call_openai_text(
         return call_openai_responses_text(config, instructions, user_input)
     if style == "chat_completions":
         return call_openai_chat_completions_text(config, instructions, user_input)
+    if style == "anthropic_messages":
+        return call_anthropic_messages_text(config, instructions, user_input)
     if style != "auto":
         raise WorkflowError(
-            "OPENAI_ENDPOINT_STYLE must be one of: auto, responses, chat_completions"
+            "OPENAI_ENDPOINT_STYLE must be one of: auto, responses, chat_completions, anthropic_messages"
         )
 
     try:
@@ -541,6 +571,34 @@ def call_openai_text(
         if not should_fallback_to_chat_completions(str(error)):
             raise
         return call_openai_chat_completions_text(config, instructions, user_input)
+
+
+def call_anthropic_messages_text(
+    config: OpenAIConfig, instructions: str, user_input: str
+) -> tuple[str, str]:
+    """Call an Anthropic-compatible messages endpoint."""
+    response = requests.post(
+        normalize_anthropic_messages_url(config.openai_api_base),
+        headers={
+            "x-api-key": config.openai_api_key,
+            "anthropic-version": ANTHROPIC_VERSION,
+            "Content-Type": "application/json",
+        },
+        json={
+            "model": config.openai_model,
+            "system": instructions,
+            "messages": [{"role": "user", "content": user_input}],
+            "max_tokens": config.max_output_tokens,
+        },
+        timeout=REQUEST_TIMEOUT_SECONDS,
+    )
+    raise_for_status(response, "Calling Anthropic-compatible messages API")
+
+    data = response.json()
+    if not isinstance(data, dict):
+        raise WorkflowError("Unexpected Anthropic messages payload format.")
+
+    return extract_anthropic_text(data), str(data.get("id", "unknown"))
 
 
 def call_openai_responses_text(
