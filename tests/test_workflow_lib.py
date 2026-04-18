@@ -10,6 +10,9 @@ from tools.request_planner import normalize_planner_payload
 from tools.workflow_lib import (
     MARKER_BACKEND_REVIEW,
     MARKER_BACKEND_RUN,
+    MARKER_FORMAL_APPROVAL,
+    MARKER_FORMAL_DIAGNOSE,
+    MARKER_FORMAL_REVIEW_PLAN,
     OpenAIConfig,
     PRIMARY_LABELS,
     WorkflowError,
@@ -64,6 +67,11 @@ class WorkflowLabelTests(unittest.TestCase):
     def test_phase2a_marker_constants_are_stable(self) -> None:
         self.assertEqual(MARKER_BACKEND_RUN, "<!-- wf:backend-run -->")
         self.assertEqual(MARKER_BACKEND_REVIEW, "<!-- wf:backend-review -->")
+
+    def test_formal_marker_constants_are_stable(self) -> None:
+        self.assertEqual(MARKER_FORMAL_DIAGNOSE, "<!-- wf:formal-diagnose -->")
+        self.assertEqual(MARKER_FORMAL_REVIEW_PLAN, "<!-- wf:formal-review-plan -->")
+        self.assertEqual(MARKER_FORMAL_APPROVAL, "<!-- wf:formal-approval -->")
 
     def test_find_latest_marker_comment_prefers_updated_timestamp(self) -> None:
         comments = [
@@ -313,6 +321,55 @@ class WorkflowFilesTests(unittest.TestCase):
         for workflow_file in workflow_files:
             content = workflow_file.read_text(encoding="utf-8")
             self.assertIn("ref: refs/heads/${{ github.event.repository.default_branch }}", content)
+
+    def test_request_plan_workflow_pull_request_trigger_is_limited_to_request_docs(
+        self,
+    ) -> None:
+        workflow = (
+            Path(__file__).resolve().parents[1]
+            / ".github"
+            / "workflows"
+            / "request-plan.yml"
+        ).read_text(encoding="utf-8")
+
+        self.assertIn("paths:", workflow)
+        self.assertIn("- docs/requests/**/*.md", workflow)
+
+    def test_formal_review_plan_workflow_uses_kuaipao_secret_and_default_branch_checkout(
+        self,
+    ) -> None:
+        workflow = (
+            Path(__file__).resolve().parents[1]
+            / ".github"
+            / "workflows"
+            / "formal-review-plan.yml"
+        ).read_text(encoding="utf-8")
+
+        self.assertIn("OPENAI_API_KEY: ${{ secrets.KUAIPAO_API_GPT }}", workflow)
+        self.assertIn("ref: refs/heads/${{ github.event.repository.default_branch }}", workflow)
+
+    def test_formal_review_plan_workflow_has_pr_scoped_concurrency(self) -> None:
+        workflow = (
+            Path(__file__).resolve().parents[1]
+            / ".github"
+            / "workflows"
+            / "formal-review-plan.yml"
+        ).read_text(encoding="utf-8")
+
+        self.assertIn("group: formal-review-plan-pr-${{ github.event.issue.number }}", workflow)
+        self.assertIn("cancel-in-progress: false", workflow)
+
+    def test_formal_review_plan_workflow_requires_trusted_comment_author(self) -> None:
+        workflow = (
+            Path(__file__).resolve().parents[1]
+            / ".github"
+            / "workflows"
+            / "formal-review-plan.yml"
+        ).read_text(encoding="utf-8")
+
+        self.assertIn("github.event.comment.author_association == 'OWNER'", workflow)
+        self.assertIn("github.event.comment.author_association == 'MEMBER'", workflow)
+        self.assertIn("github.event.comment.author_association == 'COLLABORATOR'", workflow)
 
 
 if __name__ == "__main__":

@@ -5,6 +5,8 @@ on:
     types:
       - opened
       - synchronize
+    paths:
+      - docs/requests/**/*.md
   issue_comment:
     types:
       - created

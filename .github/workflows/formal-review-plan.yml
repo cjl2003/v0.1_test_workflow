@@ -1,0 +1,60 @@
+name: Formal Review Plan
+
+on:
+  issue_comment:
+    types:
+      - created
+      - edited
+
+permissions:
+  contents: read
+  issues: write
+  pull-requests: write
+
+concurrency:
+  group: formal-review-plan-pr-${{ github.event.issue.number }}
+  cancel-in-progress: false
+
+jobs:
+  formal_review_plan:
+    if: >-
+      github.event.issue.pull_request &&
+      (
+        github.event.comment.author_association == 'OWNER' ||
+        github.event.comment.author_association == 'MEMBER' ||
+        github.event.comment.author_association == 'COLLABORATOR'
+      ) &&
+      contains(github.event.comment.body, '<!-- wf:formal-diagnose -->')
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out default branch workflow code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: refs/heads/${{ github.event.repository.default_branch }}
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements.txt
+
+      - name: Run GPT Formal review-plan
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_REPO: ${{ github.repository }}
+          OPENAI_API_KEY: ${{ secrets.KUAIPAO_API_GPT }}
+          OPENAI_API_BASE: ${{ vars.OPENAI_API_BASE }}
+          OPENAI_REVIEW_MODEL: ${{ vars.OPENAI_REVIEW_MODEL }}
+          OPENAI_MODEL: ${{ vars.OPENAI_MODEL }}
+          OPENAI_ENDPOINT_STYLE: ${{ vars.OPENAI_ENDPOINT_STYLE }}
+          OPENAI_REASONING_EFFORT: ${{ vars.OPENAI_REASONING_EFFORT }}
+          OPENAI_MAX_OUTPUT_TOKENS: ${{ vars.OPENAI_MAX_OUTPUT_TOKENS }}
+          PR_NUMBER: ${{ github.event.issue.number }}
+        run: python -m tools.formal_review_plan
