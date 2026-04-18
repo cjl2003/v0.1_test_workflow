@@ -322,6 +322,42 @@ class WorkflowFilesTests(unittest.TestCase):
             content = workflow_file.read_text(encoding="utf-8")
             self.assertIn("ref: refs/heads/${{ github.event.repository.default_branch }}", content)
 
+    def test_formal_review_plan_workflow_uses_kuaipao_secret_and_default_branch_checkout(
+        self,
+    ) -> None:
+        workflow = (
+            Path(__file__).resolve().parents[1]
+            / ".github"
+            / "workflows"
+            / "formal-review-plan.yml"
+        ).read_text(encoding="utf-8")
+
+        self.assertIn("OPENAI_API_KEY: ${{ secrets.KUAIPAO_API_GPT }}", workflow)
+        self.assertIn("ref: refs/heads/${{ github.event.repository.default_branch }}", workflow)
+
+    def test_formal_review_plan_workflow_has_pr_scoped_concurrency(self) -> None:
+        workflow = (
+            Path(__file__).resolve().parents[1]
+            / ".github"
+            / "workflows"
+            / "formal-review-plan.yml"
+        ).read_text(encoding="utf-8")
+
+        self.assertIn("group: formal-review-plan-pr-${{ github.event.issue.number }}", workflow)
+        self.assertIn("cancel-in-progress: false", workflow)
+
+    def test_formal_review_plan_workflow_requires_trusted_comment_author(self) -> None:
+        workflow = (
+            Path(__file__).resolve().parents[1]
+            / ".github"
+            / "workflows"
+            / "formal-review-plan.yml"
+        ).read_text(encoding="utf-8")
+
+        self.assertIn("github.event.comment.author_association == 'OWNER'", workflow)
+        self.assertIn("github.event.comment.author_association == 'MEMBER'", workflow)
+        self.assertIn("github.event.comment.author_association == 'COLLABORATOR'", workflow)
+
 
 if __name__ == "__main__":
     unittest.main()
