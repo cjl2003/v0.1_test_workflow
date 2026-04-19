@@ -19,6 +19,7 @@ from tools.workflow_lib import (
     PRIMARY_LABELS,
     WorkflowError,
     build_primary_label_set,
+    call_openai_text,
     call_openai_chat_completions_text,
     call_openai_responses_text,
     find_latest_marker_comment,
@@ -298,6 +299,78 @@ class OpenAIResponseDiagnosticsTests(unittest.TestCase):
         self.assertIn("HTTP 200", str(error.exception))
         self.assertIn("text/html", str(error.exception))
         self.assertIn("<html>bad gateway</html>", str(error.exception))
+
+    def test_call_openai_text_uses_anthropic_messages_endpoint(self) -> None:
+        response = mock.Mock()
+        response.status_code = 200
+        response.raise_for_status.return_value = None
+        response.json.return_value = {
+            "id": "msg_123",
+            "content": [{"type": "text", "text": "ok"}],
+        }
+
+        config = OpenAIConfig(
+            openai_api_key="sk-test",
+            openai_api_base="https://kuaipao.ai",
+            openai_model="claude-opus-4-6",
+            openai_endpoint_style="anthropic_messages",
+            openai_reasoning_effort="medium",
+            max_output_tokens=1800,
+        )
+
+        with mock.patch("tools.workflow_lib.requests.post", return_value=response) as post:
+            text, response_id = call_openai_text(config, "system text", "user text")
+
+        self.assertEqual(text, "ok")
+        self.assertEqual(response_id, "msg_123")
+        post.assert_called_once()
+        self.assertEqual(post.call_args.args[0], "https://kuaipao.ai")
+        self.assertEqual(post.call_args.kwargs["headers"]["x-api-key"], "sk-test")
+        self.assertEqual(
+            post.call_args.kwargs["headers"]["anthropic-version"],
+            "2023-06-01",
+        )
+        self.assertEqual(post.call_args.kwargs["json"]["model"], "claude-opus-4-6")
+        self.assertEqual(post.call_args.kwargs["json"]["system"], "system text")
+        self.assertEqual(
+            post.call_args.kwargs["json"]["messages"],
+            [{"role": "user", "content": "user text"}],
+        )
+        self.assertEqual(post.call_args.kwargs["json"]["max_tokens"], 1800)
+
+    def test_call_openai_text_reports_redacted_non_json_anthropic_response(self) -> None:
+        response = mock.Mock()
+        response.status_code = 200
+        response.raise_for_status.return_value = None
+        response.text = (
+            "<html>invalid upstream for sk-test with "
+            'Authorization: Bearer sk-test and "x-api-key":"sk-test"</html>'
+        )
+        response.headers = {"Content-Type": "text/html; charset=utf-8"}
+        response.json.side_effect = requests.exceptions.JSONDecodeError(
+            "Expecting value",
+            response.text,
+            0,
+        )
+
+        config = OpenAIConfig(
+            openai_api_key="sk-test",
+            openai_api_base="https://kuaipao.ai",
+            openai_model="claude-opus-4-6",
+            openai_endpoint_style="anthropic_messages",
+            openai_reasoning_effort="medium",
+            max_output_tokens=1800,
+        )
+
+        with mock.patch("tools.workflow_lib.requests.post", return_value=response):
+            with self.assertRaises(WorkflowError) as error:
+                call_openai_text(config, "system text", "user text")
+
+        message = str(error.exception)
+        self.assertIn("HTTP 200", message)
+        self.assertIn("body snippet:", message)
+        self.assertIn("[REDACTED]", message)
+        self.assertNotIn("sk-test", message)
 
 
 class GitHubClientCommentTests(unittest.TestCase):
