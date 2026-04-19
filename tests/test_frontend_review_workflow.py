@@ -15,14 +15,12 @@ class FrontendReviewWorkflowTests(unittest.TestCase):
         self.assertIn("if: github.event_name == 'pull_request'", workflow_text)
         self.assertIn("ref: ${{ github.event.pull_request.head.sha }}", workflow_text)
 
-    def test_issue_comment_path_keeps_default_branch_checkout(self) -> None:
+    def test_issue_comment_path_checks_out_pr_head(self) -> None:
         workflow_text = WORKFLOW_PATH.read_text(encoding="utf-8")
 
-        self.assertIn("- name: Check out default branch workflow code on issue_comment", workflow_text)
+        self.assertIn("- name: Check out PR head on issue_comment", workflow_text)
         self.assertIn("if: github.event_name == 'issue_comment'", workflow_text)
-        self.assertIn(
-            "ref: refs/heads/${{ github.event.repository.default_branch }}", workflow_text
-        )
+        self.assertIn("ref: refs/pull/${{ github.event.issue.number }}/head", workflow_text)
 
 
 if __name__ == "__main__":
