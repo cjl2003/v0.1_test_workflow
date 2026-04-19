@@ -167,16 +167,16 @@ class PlannerPayloadTests(unittest.TestCase):
 
 
 class AnthropicWorkflowTests(unittest.TestCase):
-    def test_normalize_anthropic_messages_url_appends_messages_endpoint(self) -> None:
+    def test_normalize_anthropic_messages_url_keeps_raw_base_url(self) -> None:
         self.assertEqual(
             workflow_lib.normalize_anthropic_messages_url("https://kuaipao.ai"),
-            "https://kuaipao.ai/v1/messages",
+            "https://kuaipao.ai",
         )
 
-    def test_normalize_anthropic_messages_url_replaces_trailing_v1_path(self) -> None:
+    def test_normalize_anthropic_messages_url_strips_only_trailing_slash(self) -> None:
         self.assertEqual(
-            workflow_lib.normalize_anthropic_messages_url("https://kuaipao.ai/v1/"),
-            "https://kuaipao.ai/v1/messages",
+            workflow_lib.normalize_anthropic_messages_url("https://kuaipao.ai/"),
+            "https://kuaipao.ai",
         )
 
     def test_extract_anthropic_text_joins_multiple_text_blocks(self) -> None:
@@ -221,7 +221,7 @@ class AnthropicWorkflowTests(unittest.TestCase):
         mock_post.assert_called_once()
         self.assertEqual(
             mock_post.call_args.args[0],
-            "https://kuaipao.ai/v1/messages",
+            "https://kuaipao.ai",
         )
         self.assertEqual(
             mock_post.call_args.kwargs["json"]["system"],
