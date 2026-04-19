@@ -2,6 +2,9 @@ name: Anthropic Probe
 
 on:
   workflow_dispatch:
+  push:
+    branches:
+      - codex/anthropic-workflow-smoke
 
 permissions:
   contents: read
