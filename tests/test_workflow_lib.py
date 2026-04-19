@@ -290,6 +290,18 @@ class WorkflowFilesTests(unittest.TestCase):
             self.assertIn("uses: actions/checkout@v6", content)
             self.assertIn("uses: actions/setup-python@v6", content)
 
+    def test_request_plan_workflow_only_triggers_for_request_documents(self) -> None:
+        workflow_file = (
+            Path(__file__).resolve().parents[1]
+            / ".github"
+            / "workflows"
+            / "request-plan.yml"
+        )
+        content = workflow_file.read_text(encoding="utf-8")
+
+        self.assertIn("paths:", content)
+        self.assertIn("docs/requests/**", content)
+
 
 if __name__ == "__main__":
     unittest.main()
