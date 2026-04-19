@@ -37,10 +37,8 @@ jobs:
           python - <<'PY'
           import json
           import os
-          import sys
-          import urllib.error
-          import urllib.request
 
+          import requests
           from tools.workflow_lib import ANTHROPIC_VERSION, normalize_anthropic_messages_url
 
           api_key = os.environ["OPENAI_API_KEY"]
@@ -60,24 +58,23 @@ jobs:
               raise SystemExit(f"Expected anthropic_messages style, got: {endpoint_style}")
 
           def post_json(payload):
-              request = urllib.request.Request(
+              response = requests.post(
                   url,
-                  data=json.dumps(payload).encode("utf-8"),
-                  method="POST",
                   headers={
-                      "content-type": "application/json",
                       "x-api-key": api_key,
                       "anthropic-version": ANTHROPIC_VERSION,
+                      "Content-Type": "application/json",
                   },
+                  json=payload,
+                  timeout=90,
               )
               try:
-                  with urllib.request.urlopen(request, timeout=90) as response:
-                      body = response.read().decode("utf-8")
-                      return response.status, dict(response.headers.items()), json.loads(body)
-              except urllib.error.HTTPError as exc:
-                  body = exc.read().decode("utf-8", errors="replace")
+                  response.raise_for_status()
+                  return response.status_code, dict(response.headers.items()), response.json()
+              except requests.HTTPError:
+                  body = response.text
                   print("HTTP_ERROR", json.dumps({
-                      "status": exc.code,
+                      "status": response.status_code,
                       "body": body[:800],
                   }, ensure_ascii=True))
                   raise
