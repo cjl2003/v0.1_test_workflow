@@ -324,7 +324,7 @@ class OpenAIResponseDiagnosticsTests(unittest.TestCase):
         self.assertEqual(text, "ok")
         self.assertEqual(response_id, "msg_123")
         post.assert_called_once()
-        self.assertEqual(post.call_args.args[0], "https://kuaipao.ai")
+        self.assertEqual(post.call_args.args[0], "https://kuaipao.ai/v1/messages")
         self.assertEqual(post.call_args.kwargs["headers"]["x-api-key"], "sk-test")
         self.assertEqual(
             post.call_args.kwargs["headers"]["anthropic-version"],
