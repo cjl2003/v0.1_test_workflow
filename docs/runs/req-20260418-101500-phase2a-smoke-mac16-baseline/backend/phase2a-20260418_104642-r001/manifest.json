@@ -1,0 +1,47 @@
+{
+  "request_id": "req-20260418-101500-phase2a-smoke-mac16-baseline",
+  "run_id": "phase2a-20260418_104642-r001",
+  "version": "r001",
+  "stage": "phase-2A",
+  "status": "failed",
+  "repo_artifact_dir": "C:/Users/lalala/.codex-phase2a-runner/worktrees/manual-backend-pr-20-20260418_104642/docs/runs/req-20260418-101500-phase2a-smoke-mac16-baseline/backend/phase2a-20260418_104642-r001",
+  "local_package_dir": "C:\\Users\\lalala\\.codex\\backend_runs\\req-20260418-101500-phase2a-smoke-mac16-baseline\\phase2a-20260418_104642-r001",
+  "synthesis": {
+    "status": "pass",
+    "corners": {
+      "TT": {
+        "wns": "-0.849442",
+        "tns": "-271.654297",
+        "paths": "894.000000",
+        "area": "26905.68",
+        "power": "1.246e-02  6.353e-03  1.881e-02( 99.99%)  1.855e-06(  0.01%)  1.881e-02(100.00%)"
+      },
+      "SS": {
+        "wns": "-2.208038",
+        "tns": "-1234.247559",
+        "paths": "1031.000000",
+        "area": "26814.24",
+        "power": "9.182e-03  4.628e-03  1.381e-02( 99.77%)  3.137e-05(  0.23%)  1.384e-02(100.00%)"
+      },
+      "FF": {
+        "wns": "-0.238153",
+        "tns": "-54.578938",
+        "paths": "299.000000",
+        "area": "22349.88",
+        "power": "1.550e-02  6.960e-03  2.246e-02( 99.99%)  2.190e-06(  0.01%)  2.247e-02(100.00%)"
+      }
+    }
+  },
+  "formal_ec": {
+    "status": "failed",
+    "translated_spec_run": {
+      "verification_status": "FAIL:UNMATCH",
+      "asserts": "79/987/0/0/1066"
+    },
+    "premapped_sanity_run": {
+      "verification_status": "FAIL:UNMATCH",
+      "asserts": "66/998/0/0/1064"
+    }
+  },
+  "notes": "Synthesis completed on all three required PVT corners and produced a canonical TT mapped.v. Formal EC did not pass. The first direct RTL-oriented attempt required a Verilog-2000-compatible formal-spec proxy because FormalEC could not parse the original SystemVerilog source. That translated-spec run ended with FAIL:UNMATCH (79/987/0/0/1066). A second sanity run using TT pre_mapped.v vs TT mapped.v also ended with FAIL:UNMATCH (66/998/0/0/1064), so the remaining blocker is in the Formal proof setup or compare mapping, not in SSH connectivity or synthesis artifact generation."
+}
