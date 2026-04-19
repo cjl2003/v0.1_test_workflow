@@ -65,6 +65,34 @@ new file mode 100644
         )
         self.assertIn("# Frontend Run Result", context)
 
+    def test_load_review_context_keeps_large_smoke_prompt_bounded(self) -> None:
+        latest_plan = {
+            "body": "<!-- wf:plan -->\n## Frontend Plan\n" + ("P" * 500),
+            "created_at": "2026-04-17T03:12:36Z",
+            "updated_at": "2026-04-17T03:12:36Z",
+        }
+        latest_run = {
+            "body": (
+                "<!-- wf:codex-run -->\n"
+                "## Local Codex Run\n"
+                "- Run Result Path: `docs/runs/req-1/20260417_041824.md`\n"
+                + ("R" * 400)
+            ),
+            "created_at": "2026-04-17T04:21:08Z",
+            "updated_at": "2026-04-17T04:21:08Z",
+        }
+        client = mock.Mock()
+        client.list_issue_comments.return_value = [latest_plan, latest_run]
+        client.fetch_pull_request_diff.return_value = (
+            "diff --git a/README.md b/README.md\n" + ("D" * 30000)
+        )
+        client.fetch_pull_request_file_text.return_value = "# Frontend Run Result\n" + ("X" * 20000)
+
+        context = frontend_review.load_review_context(11, client)
+
+        self.assertLess(len(context), 12000)
+        self.assertIn("[truncated by workflow_lib.py", context)
+
 
 if __name__ == "__main__":
     unittest.main()

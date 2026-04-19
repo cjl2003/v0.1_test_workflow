@@ -28,6 +28,8 @@ from tools.workflow_lib import (
 )
 
 WORKFLOW_ARTIFACT_PREFIXES = ("docs/requests/", "docs/runs/")
+REVIEW_RUN_RESULT_MAX_CHARS = 2000
+REVIEW_DIFF_MAX_CHARS = 6000
 
 
 def partition_changed_paths(diff_text: str) -> tuple[list[str], list[str]]:
@@ -134,7 +136,10 @@ def load_review_context(pr_number: int, client: GitHubClient) -> str:
     blocks = [
         indent_block("Latest Approved Plan", plan_body),
         indent_block("Latest Codex Run Comment", run_body),
-        indent_block("Latest Run Result Document", truncate_text(run_result, 12000)),
+        indent_block(
+            "Latest Run Result Document",
+            truncate_text(run_result, REVIEW_RUN_RESULT_MAX_CHARS),
+        ),
         indent_block(
             "Changed File Classification",
             "\n".join(
@@ -147,7 +152,7 @@ def load_review_context(pr_number: int, client: GitHubClient) -> str:
                 ]
             ),
         ),
-        indent_block("Latest Pull Request Diff", truncate_text(diff_text, 24000)),
+        indent_block("Latest Pull Request Diff", truncate_text(diff_text, REVIEW_DIFF_MAX_CHARS)),
     ]
     return "\n\n".join(blocks)
 
