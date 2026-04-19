@@ -8,7 +8,6 @@ Responses API for review, and posts the review back as a PR comment.
 from __future__ import annotations
 
 import argparse
-import json
 import os
 import sys
 import textwrap
@@ -19,6 +18,22 @@ from typing import Any
 
 import requests
 from dotenv import load_dotenv
+
+try:
+    from tools.workflow_lib import (
+        OpenAIConfig,
+        WorkflowError,
+        call_openai_text as shared_call_openai_text,
+    )
+except ModuleNotFoundError as error:
+    if error.name != "tools":
+        raise
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+    from tools.workflow_lib import (
+        OpenAIConfig,
+        WorkflowError,
+        call_openai_text as shared_call_openai_text,
+    )
 
 
 REVIEW_COMMENT_MARKER = "<!-- rtl-auto-review -->"
@@ -332,181 +347,30 @@ def build_openai_input(
     ).strip()
 
 
+def build_openai_config(config: Config) -> OpenAIConfig:
+    """Translate reviewer config into the shared model-caller config."""
+    return OpenAIConfig(
+        openai_api_key=config.openai_api_key,
+        openai_api_base=config.openai_api_base,
+        openai_model=config.openai_model,
+        openai_endpoint_style=config.openai_endpoint_style,
+        openai_reasoning_effort=config.openai_reasoning_effort,
+        max_output_tokens=config.max_output_tokens,
+    )
+
+
 def call_openai_review(
     config: Config, instructions: str, review_input: str
 ) -> tuple[str, str]:
-    """Send the diff to an OpenAI-compatible API and return the textual review."""
-    endpoint_style = config.openai_endpoint_style
-    if endpoint_style == "responses":
-        return call_openai_responses_review(config, instructions, review_input)
-    if endpoint_style == "chat_completions":
-        return call_openai_chat_completions_review(config, instructions, review_input)
-    if endpoint_style != "auto":
-        raise ReviewerError(
-            "OPENAI_ENDPOINT_STYLE must be one of: auto, responses, chat_completions"
-        )
-
+    """Send the diff to the shared model caller and return the textual review."""
     try:
-        return call_openai_responses_review(config, instructions, review_input)
-    except ReviewerError as error:
-        if not should_fallback_to_chat_completions(str(error)):
-            raise
-        print(
-            "[reviewer] Responses API is unavailable on this endpoint. "
-            "Falling back to chat completions."
+        return shared_call_openai_text(
+            build_openai_config(config),
+            instructions,
+            review_input,
         )
-        return call_openai_chat_completions_review(config, instructions, review_input)
-
-
-def call_openai_responses_review(
-    config: Config, instructions: str, review_input: str
-) -> tuple[str, str]:
-    """Send the diff to OpenAI Responses API and return the textual review."""
-    payload: dict[str, Any] = {
-        "model": config.openai_model,
-        "instructions": instructions,
-        "input": review_input,
-        "max_output_tokens": config.max_output_tokens,
-        "metadata": {
-            "tool": "rtl-pr-auto-reviewer",
-            "repo": config.github_repo,
-            "pr_number": str(config.pr_number),
-        },
-    }
-
-    if config.openai_reasoning_effort:
-        payload["reasoning"] = {"effort": config.openai_reasoning_effort}
-
-    response = requests.post(
-        f"{config.openai_api_base}/responses",
-        headers={
-            "Authorization": f"Bearer {config.openai_api_key}",
-            "Content-Type": "application/json",
-        },
-        json=payload,
-        timeout=REQUEST_TIMEOUT_SECONDS,
-    )
-    raise_for_status(response, "Calling OpenAI Responses API")
-
-    data = response.json()
-    if not isinstance(data, dict):
-        raise ReviewerError("Unexpected OpenAI response format.")
-
-    review_text = extract_openai_text(data)
-    response_id = str(data.get("id", "unknown"))
-    if not review_text:
-        raise ReviewerError(
-            "OpenAI returned no output_text content. Raw payload: "
-            f"{json.dumps(data)[:1500]}"
-        )
-    return review_text, response_id
-
-
-def call_openai_chat_completions_review(
-    config: Config, instructions: str, review_input: str
-) -> tuple[str, str]:
-    """Call an OpenAI-compatible chat completions endpoint."""
-    payload: dict[str, Any] = {
-        "model": config.openai_model,
-        "messages": [
-            {"role": "system", "content": instructions},
-            {"role": "user", "content": review_input},
-        ],
-        "max_tokens": config.max_output_tokens,
-    }
-
-    response = requests.post(
-        f"{config.openai_api_base}/chat/completions",
-        headers={
-            "Authorization": f"Bearer {config.openai_api_key}",
-            "Content-Type": "application/json",
-        },
-        json=payload,
-        timeout=REQUEST_TIMEOUT_SECONDS,
-    )
-    raise_for_status(response, "Calling OpenAI-compatible chat completions API")
-
-    data = response.json()
-    if not isinstance(data, dict):
-        raise ReviewerError("Unexpected chat completions response format.")
-
-    review_text = extract_chat_completions_text(data)
-    response_id = str(data.get("id", "unknown"))
-    if not review_text:
-        raise ReviewerError(
-            "Chat completions API returned no review text. Raw payload: "
-            f"{json.dumps(data)[:1500]}"
-        )
-    return review_text, response_id
-
-
-def extract_openai_text(response_json: dict[str, Any]) -> str:
-    """Aggregate all output_text chunks from a raw Responses API payload.
-
-    The REST API returns text inside the `output` array rather than exposing the
-    SDK-only `output_text` convenience property.
-    """
-    parts: list[str] = []
-
-    for item in response_json.get("output", []):
-        if not isinstance(item, dict):
-            continue
-        if item.get("type") != "message":
-            continue
-        for content in item.get("content", []):
-            if not isinstance(content, dict):
-                continue
-            if content.get("type") != "output_text":
-                continue
-            text = str(content.get("text", "")).strip()
-            if text:
-                parts.append(text)
-
-    return "\n\n".join(parts).strip()
-
-
-def extract_chat_completions_text(response_json: dict[str, Any]) -> str:
-    """Extract assistant text from a chat completions-style response."""
-    choices = response_json.get("choices", [])
-    if not isinstance(choices, list) or not choices:
-        return ""
-
-    message = (choices[0] or {}).get("message", {})
-    content = message.get("content", "")
-    if isinstance(content, str):
-        return content.strip()
-
-    if isinstance(content, list):
-        parts: list[str] = []
-        for item in content:
-            if not isinstance(item, dict):
-                continue
-            if item.get("type") not in {"text", "output_text"}:
-                continue
-            text = str(item.get("text", "")).strip()
-            if text:
-                parts.append(text)
-        return "\n\n".join(parts).strip()
-
-    return ""
-
-
-def should_fallback_to_chat_completions(error_message: str) -> bool:
-    """Detect endpoint-shape failures that merit a chat completions retry."""
-    retry_markers = ("HTTP 400", "HTTP 404", "HTTP 405", "HTTP 415", "HTTP 422")
-    unsupported_markers = (
-        "unsupported",
-        "not found",
-        "not implemented",
-        "unknown url",
-        "no route",
-        "does not exist",
-        "convert_request_failed",
-    )
-    normalized = error_message.lower()
-    return any(marker in error_message for marker in retry_markers) or any(
-        marker in normalized for marker in unsupported_markers
-    )
+    except WorkflowError as error:
+        raise ReviewerError(str(error)) from error
 
 
 def format_comment_body(

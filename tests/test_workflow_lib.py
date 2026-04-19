@@ -1,13 +1,13 @@
 import unittest
+from pathlib import Path
+from unittest.mock import Mock, patch
+
+import requests
 
 from tools.command_router import evaluate_command
 from tools.frontend_review import normalize_review_payload
 from tools.request_planner import normalize_planner_payload
-from tools.workflow_lib import (
-    PRIMARY_LABELS,
-    build_primary_label_set,
-    find_latest_marker_comment,
-)
+import tools.workflow_lib as workflow_lib
 
 
 def make_comment(body: str, created_at: str, updated_at: str | None = None) -> dict:
@@ -22,7 +22,7 @@ class WorkflowLabelTests(unittest.TestCase):
     def test_build_primary_label_set_replaces_existing_primary_label(self) -> None:
         labels = ["bug", "wf:intake", "docs"]
 
-        updated = build_primary_label_set(labels, "wf:codex-queued")
+        updated = workflow_lib.build_primary_label_set(labels, "wf:codex-queued")
 
         self.assertEqual(
             updated,
@@ -31,7 +31,7 @@ class WorkflowLabelTests(unittest.TestCase):
 
     def test_primary_labels_constant_contains_phase1_states(self) -> None:
         self.assertEqual(
-            PRIMARY_LABELS,
+            workflow_lib.PRIMARY_LABELS,
             (
                 "wf:intake",
                 "wf:needs-clarification",
@@ -43,6 +43,17 @@ class WorkflowLabelTests(unittest.TestCase):
                 "wf:frontend-passed",
                 "wf:failed",
             ),
+        )
+
+    def test_formal_marker_constants_are_stable(self) -> None:
+        self.assertEqual(
+            workflow_lib.MARKER_FORMAL_DIAGNOSE, "<!-- wf:formal-diagnose -->"
+        )
+        self.assertEqual(
+            workflow_lib.MARKER_FORMAL_REVIEW_PLAN, "<!-- wf:formal-review-plan -->"
+        )
+        self.assertEqual(
+            workflow_lib.MARKER_FORMAL_APPROVAL, "<!-- wf:formal-approval -->"
         )
 
     def test_find_latest_marker_comment_prefers_updated_timestamp(self) -> None:
@@ -59,7 +70,7 @@ class WorkflowLabelTests(unittest.TestCase):
             ),
         ]
 
-        latest = find_latest_marker_comment(comments, "<!-- wf:plan -->")
+        latest = workflow_lib.find_latest_marker_comment(comments, "<!-- wf:plan -->")
 
         self.assertIsNotNone(latest)
         self.assertIn("new plan", latest["body"])
@@ -157,6 +168,123 @@ class PlannerPayloadTests(unittest.TestCase):
         self.assertIn("Blocking Reason", normalized.body)
 
 
+class AnthropicWorkflowTests(unittest.TestCase):
+    def test_normalize_anthropic_messages_url_keeps_raw_base_url(self) -> None:
+        self.assertEqual(
+            workflow_lib.normalize_anthropic_messages_url("https://kuaipao.ai"),
+            "https://kuaipao.ai",
+        )
+
+    def test_normalize_anthropic_messages_url_strips_only_trailing_slash(self) -> None:
+        self.assertEqual(
+            workflow_lib.normalize_anthropic_messages_url("https://kuaipao.ai/"),
+            "https://kuaipao.ai",
+        )
+
+    def test_extract_anthropic_text_joins_multiple_text_blocks(self) -> None:
+        payload = {
+            "content": [
+                {"type": "text", "text": "first"},
+                {"type": "text", "text": "second"},
+            ]
+        }
+
+        self.assertEqual(workflow_lib.extract_anthropic_text(payload), "first\n\nsecond")
+
+    def test_extract_anthropic_text_raises_when_no_text_blocks_exist(self) -> None:
+        with self.assertRaises(workflow_lib.WorkflowError):
+            workflow_lib.extract_anthropic_text({"content": [{"type": "tool_use"}]})
+
+    @patch("tools.workflow_lib.requests.post")
+    def test_call_openai_text_uses_anthropic_messages_endpoint(self, mock_post: Mock) -> None:
+        mock_response = Mock()
+        mock_response.json.return_value = {
+            "id": "msg_123",
+            "content": [{"type": "text", "text": "ok"}],
+        }
+        mock_response.status_code = 200
+        mock_post.return_value = mock_response
+
+        config = workflow_lib.OpenAIConfig(
+            openai_api_key="sk-test",
+            openai_api_base="https://kuaipao.ai",
+            openai_model="claude-opus-4-7",
+            openai_endpoint_style="anthropic_messages",
+            openai_reasoning_effort="medium",
+            max_output_tokens=1800,
+        )
+
+        text, response_id = workflow_lib.call_openai_text(
+            config, "system text", "user text"
+        )
+
+        self.assertEqual(text, "ok")
+        self.assertEqual(response_id, "msg_123")
+        mock_post.assert_called_once()
+        self.assertEqual(
+            mock_post.call_args.args[0],
+            "https://kuaipao.ai",
+        )
+        self.assertEqual(
+            mock_post.call_args.kwargs["json"]["system"],
+            "system text",
+        )
+        self.assertEqual(
+            mock_post.call_args.kwargs["json"]["messages"],
+            [{"role": "user", "content": "user text"}],
+        )
+        self.assertEqual(
+            mock_post.call_args.kwargs["json"]["model"],
+            config.openai_model,
+        )
+        self.assertEqual(mock_post.call_args.kwargs["json"]["max_tokens"], 1800)
+        self.assertEqual(
+            mock_post.call_args.kwargs["headers"]["x-api-key"],
+            "sk-test",
+        )
+        self.assertEqual(
+            mock_post.call_args.kwargs["headers"]["anthropic-version"],
+            "2023-06-01",
+        )
+
+    @patch("tools.workflow_lib.requests.post")
+    def test_call_openai_text_reports_status_and_redacted_body_for_non_json_anthropic_response(
+        self, mock_post: Mock
+    ) -> None:
+        mock_response = Mock()
+        mock_response.status_code = 200
+        mock_response.text = (
+            "<html>invalid upstream for sk-test with "
+            'Authorization: Bearer sk-test and "x-api-key":"sk-test"</html>'
+        )
+        mock_response.json.side_effect = requests.exceptions.JSONDecodeError(
+            "Expecting value",
+            mock_response.text,
+            0,
+        )
+        mock_post.return_value = mock_response
+
+        config = workflow_lib.OpenAIConfig(
+            openai_api_key="sk-test",
+            openai_api_base="https://kuaipao.ai",
+            openai_model="claude-opus-4-6",
+            openai_endpoint_style="anthropic_messages",
+            openai_reasoning_effort="medium",
+            max_output_tokens=1800,
+        )
+
+        with self.assertRaisesRegex(
+            workflow_lib.WorkflowError,
+            "Anthropic-compatible messages API returned non-JSON response with HTTP 200",
+        ) as error_context:
+            workflow_lib.call_openai_text(config, "system text", "user text")
+
+        error_message = str(error_context.exception)
+        self.assertIn("body snippet:", error_message)
+        self.assertIn("[REDACTED]", error_message)
+        self.assertNotIn("sk-test", error_message)
+
+
 class FrontendReviewPayloadTests(unittest.TestCase):
     def test_normalize_review_payload_for_pass(self) -> None:
         normalized = normalize_review_payload(
@@ -185,6 +313,33 @@ class FrontendReviewPayloadTests(unittest.TestCase):
 
         self.assertEqual(normalized.target_state, "wf:rework-needed")
         self.assertIn("Outcome: `rework-needed`", normalized.body)
+
+
+class WorkflowFilesTests(unittest.TestCase):
+    def test_workflows_use_node24_compatible_action_versions(self) -> None:
+        workflow_dir = Path(__file__).resolve().parents[1] / ".github" / "workflows"
+        workflow_files = (
+            workflow_dir / "command-router.yml",
+            workflow_dir / "frontend-review.yml",
+            workflow_dir / "request-plan.yml",
+        )
+
+        for workflow_file in workflow_files:
+            content = workflow_file.read_text(encoding="utf-8")
+            self.assertIn("uses: actions/checkout@v6", content)
+            self.assertIn("uses: actions/setup-python@v6", content)
+
+    def test_request_plan_workflow_only_triggers_for_request_documents(self) -> None:
+        workflow_file = (
+            Path(__file__).resolve().parents[1]
+            / ".github"
+            / "workflows"
+            / "request-plan.yml"
+        )
+        content = workflow_file.read_text(encoding="utf-8")
+
+        self.assertIn("paths:", content)
+        self.assertIn("docs/requests/**", content)
 
 
 if __name__ == "__main__":
