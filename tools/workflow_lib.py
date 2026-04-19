@@ -202,11 +202,37 @@ def raise_for_status(response: requests.Response, context: str) -> None:
     try:
         response.raise_for_status()
     except requests.HTTPError as error:
-        body = response.text.strip()
-        snippet = body[:1000] if body else "<empty response>"
         raise WorkflowError(
-            f"{context} failed with HTTP {response.status_code}: {snippet}"
+            f"{context} failed with HTTP {response.status_code}: "
+            f"{build_response_body_snippet(response)}"
         ) from error
+
+
+def redact_body_text(text: str, secrets: Iterable[str] = ()) -> str:
+    """Redact obvious secret material from diagnostic response bodies."""
+    redacted = text
+    for secret in secrets:
+        if secret:
+            redacted = redacted.replace(secret, "[REDACTED]")
+
+    redacted = re.sub(r"(Bearer\s+)[^\s\"']+", r"\1[REDACTED]", redacted, flags=re.IGNORECASE)
+    redacted = re.sub(
+        r'("x-api-key"\s*:\s*")[^"]+(")',
+        r"\1[REDACTED]\2",
+        redacted,
+        flags=re.IGNORECASE,
+    )
+    return redacted
+
+
+def build_response_body_snippet(
+    response: requests.Response, secrets: Iterable[str] = ()
+) -> str:
+    """Trim and redact a response body for safe debugging output."""
+    body = response.text.strip()
+    if not body:
+        return "<empty response>"
+    return redact_body_text(body[:1000], secrets)
 
 
 def github_get_json(session: requests.Session, url: str, context: str) -> Any:
@@ -589,7 +615,15 @@ def call_anthropic_messages_text(
     )
     raise_for_status(response, "Calling Anthropic-compatible messages API")
 
-    data = response.json()
+    try:
+        data = response.json()
+    except requests.exceptions.JSONDecodeError as error:
+        raise WorkflowError(
+            "Anthropic-compatible messages API returned non-JSON response "
+            f"with HTTP {response.status_code}; body snippet: "
+            f"{build_response_body_snippet(response, secrets=[config.openai_api_key])}"
+        ) from error
+
     if not isinstance(data, dict):
         raise WorkflowError("Unexpected Anthropic messages payload format.")
 
