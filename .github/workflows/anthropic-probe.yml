@@ -1,0 +1,176 @@
+name: Anthropic Probe
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  anthropic_probe:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out branch
+        uses: actions/checkout@v6
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.11"
+
+      - name: Run raw Anthropic-compatible probe
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          OPENAI_API_BASE: ${{ vars.OPENAI_API_BASE }}
+          OPENAI_MODEL: ${{ vars.OPENAI_MODEL }}
+          OPENAI_ENDPOINT_STYLE: ${{ vars.OPENAI_ENDPOINT_STYLE }}
+        run: |
+          python - <<'PY'
+          import json
+          import os
+          import sys
+          import urllib.error
+          import urllib.request
+
+          from tools.workflow_lib import ANTHROPIC_VERSION, normalize_anthropic_messages_url
+
+          api_key = os.environ["OPENAI_API_KEY"]
+          api_base = os.environ["OPENAI_API_BASE"]
+          model = os.environ["OPENAI_MODEL"]
+          endpoint_style = os.environ["OPENAI_ENDPOINT_STYLE"]
+          url = normalize_anthropic_messages_url(api_base)
+
+          print("PROBE_CONFIG", json.dumps({
+              "api_base": api_base,
+              "resolved_url": url,
+              "endpoint_style": endpoint_style,
+              "model": model,
+          }, ensure_ascii=True))
+
+          if endpoint_style != "anthropic_messages":
+              raise SystemExit(f"Expected anthropic_messages style, got: {endpoint_style}")
+
+          def post_json(payload):
+              request = urllib.request.Request(
+                  url,
+                  data=json.dumps(payload).encode("utf-8"),
+                  method="POST",
+                  headers={
+                      "content-type": "application/json",
+                      "x-api-key": api_key,
+                      "anthropic-version": ANTHROPIC_VERSION,
+                  },
+              )
+              try:
+                  with urllib.request.urlopen(request, timeout=90) as response:
+                      body = response.read().decode("utf-8")
+                      return response.status, dict(response.headers.items()), json.loads(body)
+              except urllib.error.HTTPError as exc:
+                  body = exc.read().decode("utf-8", errors="replace")
+                  print("HTTP_ERROR", json.dumps({
+                      "status": exc.code,
+                      "body": body[:800],
+                  }, ensure_ascii=True))
+                  raise
+
+          def summarize_message(data):
+              content = data.get("content") or []
+              content_types = [item.get("type") for item in content if isinstance(item, dict)]
+              tool_names = [
+                  item.get("name")
+                  for item in content
+                  if isinstance(item, dict) and item.get("type") == "tool_use"
+              ]
+              text_preview = None
+              for item in content:
+                  if isinstance(item, dict) and item.get("type") == "text":
+                      text_preview = (item.get("text") or "")[:120]
+                      break
+              return {
+                  "id": data.get("id"),
+                  "id_prefix": (data.get("id") or "")[:4],
+                  "type": data.get("type"),
+                  "model": data.get("model"),
+                  "role": data.get("role"),
+                  "stop_reason": data.get("stop_reason"),
+                  "content_types": content_types,
+                  "tool_names": tool_names,
+                  "usage_keys": sorted((data.get("usage") or {}).keys()),
+                  "text_preview": text_preview,
+              }
+
+          basic_payload = {
+              "model": model,
+              "max_tokens": 64,
+              "temperature": 0,
+              "system": "You are a protocol diagnostic probe. Reply with the single token OK.",
+              "messages": [
+                  {
+                      "role": "user",
+                      "content": "Reply with exactly OK.",
+                  }
+              ],
+          }
+          status, headers, basic = post_json(basic_payload)
+          basic_summary = summarize_message(basic)
+          print("BASIC_SUMMARY", json.dumps({
+              "status": status,
+              "content_type_header": headers.get("content-type"),
+              "has_request_id_header": any(
+                  key.lower() in {"request-id", "x-request-id"}
+                  for key in headers
+              ),
+              "message": basic_summary,
+          }, ensure_ascii=True))
+
+          if basic.get("type") != "message":
+              raise SystemExit(f"Unexpected basic response type: {basic.get('type')!r}")
+          if not (basic.get("id") or "").startswith("msg_"):
+              raise SystemExit(f"Unexpected basic response id: {basic.get('id')!r}")
+          if basic.get("role") != "assistant":
+              raise SystemExit(f"Unexpected basic response role: {basic.get('role')!r}")
+          if "text" not in basic_summary["content_types"]:
+              raise SystemExit(f"Basic response missing text content: {basic_summary['content_types']!r}")
+
+          tool_payload = {
+              "model": model,
+              "max_tokens": 128,
+              "temperature": 0,
+              "system": "You are a protocol diagnostic probe. Always call the provided tool once.",
+              "tools": [
+                  {
+                      "name": "echo_string",
+                      "description": "Echoes the provided string.",
+                      "input_schema": {
+                          "type": "object",
+                          "properties": {
+                              "value": {"type": "string"},
+                          },
+                          "required": ["value"],
+                      },
+                  }
+              ],
+              "messages": [
+                  {
+                      "role": "user",
+                      "content": "Call echo_string with value exactly anthropic-tool-check.",
+                  }
+              ],
+          }
+          status, headers, tool = post_json(tool_payload)
+          tool_summary = summarize_message(tool)
+          print("TOOL_SUMMARY", json.dumps({
+              "status": status,
+              "content_type_header": headers.get("content-type"),
+              "has_request_id_header": any(
+                  key.lower() in {"request-id", "x-request-id"}
+                  for key in headers
+              ),
+              "message": tool_summary,
+          }, ensure_ascii=True))
+
+          tool_use_seen = "tool_use" in tool_summary["content_types"]
+          if not tool_use_seen:
+              print("TOOL_PROBE_NOTE", "No tool_use block observed; endpoint may still be Anthropic-compatible but this probe was not conclusive.")
+          PY
