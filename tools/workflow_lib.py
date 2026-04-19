@@ -523,48 +523,6 @@ def extract_anthropic_text(response_json: dict[str, Any]) -> str:
     return text
 
 
-def summarize_anthropic_message(response_json: dict[str, Any]) -> dict[str, Any]:
-    """Build a log-safe structural summary for Anthropic-compatible payloads."""
-    content = response_json.get("content", [])
-    if not isinstance(content, list):
-        content = []
-
-    content_types: list[str] = []
-    tool_names: list[str] = []
-    text_preview: str | None = None
-
-    for item in content:
-        if not isinstance(item, dict):
-            continue
-        item_type = str(item.get("type", "unknown"))
-        content_types.append(item_type)
-        if item_type == "tool_use":
-            tool_names.append(str(item.get("name", "")))
-        if item_type == "text" and text_preview is None:
-            text_preview = str(item.get("text", ""))[:120]
-
-    usage = response_json.get("usage")
-    usage_keys = sorted(usage.keys()) if isinstance(usage, dict) else []
-
-    return {
-        "id": response_json.get("id"),
-        "id_prefix": str(response_json.get("id", ""))[:4],
-        "type": response_json.get("type"),
-        "model": response_json.get("model"),
-        "role": response_json.get("role"),
-        "stop_reason": response_json.get("stop_reason"),
-        "content_types": content_types,
-        "tool_names": tool_names,
-        "usage_keys": usage_keys,
-        "text_preview": text_preview,
-    }
-
-
-def should_emit_anthropic_probe_log() -> bool:
-    """Enable temporary Anthropic diagnostics when the probe flag file exists."""
-    return Path(".github/anthropic-probe.flag").exists()
-
-
 def extract_chat_completions_text(response_json: dict[str, Any]) -> str:
     """Extract assistant text from a chat completions-style payload."""
     choices = response_json.get("choices", [])
@@ -639,23 +597,6 @@ def call_anthropic_messages_text(
     data = response.json()
     if not isinstance(data, dict):
         raise WorkflowError("Unexpected Anthropic messages payload format.")
-
-    if should_emit_anthropic_probe_log():
-        print(
-            "ANTHROPIC_DIAGNOSTIC "
-            + json.dumps(
-                {
-                    "status": response.status_code,
-                    "content_type_header": response.headers.get("Content-Type"),
-                    "has_request_id_header": bool(
-                        response.headers.get("request-id")
-                        or response.headers.get("x-request-id")
-                    ),
-                    "message": summarize_anthropic_message(data),
-                },
-                ensure_ascii=True,
-            )
-        )
 
     return extract_anthropic_text(data), str(data.get("id", "unknown"))
 
