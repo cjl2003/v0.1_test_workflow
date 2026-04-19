@@ -545,8 +545,13 @@ def should_fallback_to_chat_completions(error_message: str) -> bool:
 
 
 def normalize_anthropic_messages_url(base_url: str) -> str:
-    """Normalize an Anthropic-compatible base URL without rewriting the path."""
-    return base_url.rstrip("/")
+    """Normalize an Anthropic-compatible base URL to the messages endpoint."""
+    normalized = base_url.rstrip("/")
+    if normalized.endswith("/v1/messages"):
+        return normalized
+    if normalized.endswith("/v1"):
+        return f"{normalized}/messages"
+    return f"{normalized}/v1/messages"
 
 
 def extract_openai_text(response_json: dict[str, Any]) -> str:
