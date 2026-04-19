@@ -34,7 +34,15 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Check out default branch workflow code
+      - name: Check out PR head on pull_request
+        if: github.event_name == 'pull_request'
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha }}
+
+      - name: Check out default branch workflow code on issue_comment
+        if: github.event_name == 'issue_comment'
         uses: actions/checkout@v6
         with:
           fetch-depth: 0
